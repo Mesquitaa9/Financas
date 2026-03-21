@@ -221,6 +221,7 @@ function showAuthUI(loggedIn, user) {
 html,body{background:var(--bg);color:var(--text);min-height:100vh;overscroll-behavior:none}
 body{max-width:430px;margin:0 auto;padding-bottom:80px}
 
+
 /* NAV */
 .nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
   background:rgba(15,15,15,0.95);backdrop-filter:blur(20px);border-top:1px solid var(--border);
@@ -229,6 +230,8 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
   gap:3px;padding:10px 0;background:none;border:none;cursor:pointer;
   color:var(--text3);font-family:'DM Sans',sans-serif;font-size:10px;font-weight:500;transition:color .2s}
 .nb.on{color:var(--accent)}
+
+
 .nb svg{width:20px;height:20px}
 
 /* PAGES */
@@ -1340,12 +1343,11 @@ function gt(page, btn) {
 function updateFab(page) {
   const fab = document.getElementById('fab-btn');
   if(!fab) return;
-  // DRE: hide fab
   if(page==='dre') { fab.style.display='none'; return; }
   fab.style.display='flex';
-  fab.style.fontSize = '24px';
   fab.textContent = '+';
 }
+
 
 function fabAction() {
   switch(currentPage) {
@@ -1527,7 +1529,6 @@ function renderDashMonthsBar() {
 }
 
 function selectDashMonth(y, m) {
-  // Muda o mês global — todas as abas acompanham
   cY = y; cM = m;
   dashSelY = y; dashSelM = m;
   saveCurrentMonth();
@@ -3845,7 +3846,10 @@ function init() {
 
   // Se não começou no dash, renderiza em background para cache
   if(startPage !== 'dash') renderDash();
+
+  // Adiciona indicador de mês na sidebar (desktop)
 }
+
 init();
 </script>
 <script>
