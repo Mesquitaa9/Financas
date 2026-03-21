@@ -983,7 +983,8 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
         Esta ação irá:<br>
         <span style="color:var(--green)">✓</span> Gerar e baixar um arquivo HTML com todo o histórico<br>
         <span style="color:var(--green)">✓</span> Preservar cofrinhos com o saldo atual como saldo inicial<br>
-        <span style="color:var(--red)">✗</span> Apagar lançamentos, movimentações e notas<br>
+        <span style="color:var(--red)">✗</span> Apagar lançamentos e movimentações<br>
+        <span style="color:var(--green)">✓</span> Preservar todas as anotações<br>
         <span style="color:var(--blue)">↺</span> Começar o novo ano do zero
       </div>
       <div style="background:var(--rdim);border:1px solid rgba(248,113,113,.25);border-radius:var(--rs);
@@ -3323,7 +3324,7 @@ function renderDRE() {
       <span class="dre-acc-val" style="color:var(--green)">${fmt(totalInc)}</span>
       ${accArrow('rec')}
     </div>
-    <div class="dre-acc-body open" id="dre-acc-rec">
+    <div class="dre-acc-body" id="dre-acc-rec">
       ${incRows.map(([desc,{val}])=>{
         const pct = totalInc>0?val/totalInc*100:0;
         return `<div class="dre-row">
@@ -3350,7 +3351,7 @@ function renderDRE() {
       <span class="dre-acc-val" style="color:var(--red)">${fmt(totalExp)}</span>
       ${accArrow('exp')}
     </div>
-    <div class="dre-acc-body open" id="dre-acc-exp">
+    <div class="dre-acc-body" id="dre-acc-exp">
       ${expRows.map(([desc,{val}])=>{
         const pct = totalInc>0?val/totalInc*100:0;
         return `<div class="dre-row">
@@ -3761,7 +3762,7 @@ function resetarDados() {
     cofrinhos2:   cofrinhosSalvos,
     contasDef:    D.contasDef || {},   // Mantém as contas configuradas
     pagamentos:   {},
-    notas:        [],
+    notas:        D.notas || [],   // Preserva anotações
     dreClassif:   {},
     metas:        {},
     nextId:       1
