@@ -10,7 +10,8 @@
 <!-- Firebase SDKs -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut }
+import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult,
+  GoogleAuthProvider, onAuthStateChanged, signOut, browserLocalPersistence, setPersistence }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -34,11 +35,64 @@ let _unsubSnapshot = null;
 let _currentUid    = null;
 
 // ── AUTH ──────────────────────────────────────────────────────────────────
-window.fbSignIn = async () => {
-  try {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
-  } catch(e) { console.error('Login error', e); }
+const _provider = new GoogleAuthProvider();
+_provider.addScope('email');
+_provider.addScope('profile');
+
+// Garante persistência local mesmo em GitHub Pages
+setPersistence(auth, browserLocalPersistence).catch(e => console.warn('persistence:', e));
+
+// Tenta capturar resultado de redirect anterior (caso tenha usado redirect)
+getRedirectResult(auth)
+  .then(result => {
+    if(result && result.user) console.log('Redirect login OK:', result.user.email);
+  })
+  .catch(e => {
+    if(e.code && e.code !== 'auth/no-current-user' && e.code !== 'auth/null-user')
+      console.warn('getRedirectResult:', e.code);
+  });
+
+window.fbSignIn = () => {
+  // Mostra loading imediatamente
+  const bar = document.getElementById('auth-bar');
+  if(bar) {
+    bar.innerHTML = `<div style="display:flex;align-items:center;gap:8px;width:100%;justify-content:center">
+      <div style="width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:white;
+        border-radius:50%;animation:spin .7s linear infinite"></div>
+      <span style="font-size:12px;color:var(--text2)">Abrindo login Google...</span>
+    </div>`;
+  }
+  // Tenta popup — método mais confiável quando chamado direto do clique
+  signInWithPopup(auth, _provider)
+    .then(result => {
+      console.log('Popup login OK:', result.user.email);
+    })
+    .catch(e => {
+      console.warn('Popup falhou:', e.code);
+      // Se popup foi bloqueado, usa redirect como fallback
+      if(e.code === 'auth/popup-blocked' ||
+         e.code === 'auth/popup-closed-by-user' ||
+         e.code === 'auth/cancelled-popup-request') {
+        // Atualiza loading para redirect
+        if(bar) {
+          bar.innerHTML = `<div style="display:flex;align-items:center;gap:8px;width:100%;justify-content:center">
+            <div style="width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:white;
+              border-radius:50%;animation:spin .7s linear infinite"></div>
+            <span style="font-size:12px;color:var(--text2)">Redirecionando...</span>
+          </div>`;
+        }
+        signInWithRedirect(auth, _provider).catch(e2 => {
+          console.error('Redirect também falhou:', e2.code);
+          showAuthUI(false);
+        });
+      } else if(e.code !== 'auth/user-cancelled') {
+        console.error('Login error:', e.code, e.message);
+        showAuthUI(false);
+      } else {
+        // Usuário fechou o popup — restaura botão
+        showAuthUI(false);
+      }
+    });
 };
 
 window.fbSignOut = async () => {
@@ -77,7 +131,6 @@ onAuthStateChanged(auth, async (user) => {
             const pg = active.id.replace('p-','');
             if(pg==='dash') renderDash();
             if(pg==='lanc') renderLanc();
-            if(pg==='contas') renderContas();
             if(pg==='prev') renderPrev();
             if(pg==='notas') renderNotas();
             if(pg==='dre') renderDRE();
@@ -96,6 +149,17 @@ onAuthStateChanged(auth, async (user) => {
       await fbSave(D);
     }
     window._appReady = true;
+
+    // Re-renderiza a página ativa com os dados do cloud
+    const active = document.querySelector('.page.on');
+    if(active) {
+      const pg = active.id.replace('p-','');
+      if(pg==='dash')  { try { renderDash(); } catch(e){} }
+      if(pg==='lanc')  { try { renderLanc(); } catch(e){} }
+      if(pg==='prev')  { try { renderPrev(); } catch(e){} }
+      if(pg==='notas') { try { renderNotas(); } catch(e){} }
+      if(pg==='dre')   { try { renderDRE(); } catch(e){} }
+    }
 
   } else {
     _currentUid = null;
@@ -146,6 +210,7 @@ function showAuthUI(loggedIn, user) {
   --r:14px; --rs:8px;
   font-family:'DM Sans',sans-serif;
 }
+@keyframes spin{to{transform:rotate(360deg)}}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{background:var(--bg);color:var(--text);min-height:100vh;overscroll-behavior:none}
 body{max-width:430px;margin:0 auto;padding-bottom:80px}
@@ -477,6 +542,48 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
 .dre-compare-row{display:flex;justify-content:space-between;font-size:11px;color:var(--text3);padding:4px 15px}
 .dre-inv-bar-track{height:8px;background:var(--bg4);border-radius:4px;overflow:hidden;margin:6px 0 4px}
 .dre-inv-bar-fill{height:100%;border-radius:4px;background:var(--green);transition:width .6s}
+
+/* DASHBOARD BARRA DE MESES */
+.dash-months-scroll{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;margin-bottom:12px}
+.dash-months-scroll::-webkit-scrollbar{display:none}
+.dash-month-pill{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 14px;border-radius:14px;border:1.5px solid var(--border);background:var(--bg2);cursor:pointer;transition:all .18s;flex-shrink:0;min-width:68px}
+.dash-month-pill.on{border-color:var(--accent);background:rgba(232,213,176,.1)}
+.dmp-mes{font-size:11px;font-weight:600;color:var(--text3)}
+.dash-month-pill.on .dmp-mes{color:var(--accent)}
+.dmp-sal{font-size:12px;font-weight:700;font-family:'DM Mono',monospace}
+.dmp-bar{width:36px;height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:2px}
+.dmp-bar-fill{height:100%;border-radius:2px}
+/* MINI-DRE */
+.mini-dre{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:10px}
+.mini-dre-header{padding:12px 14px;display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-bottom:1px solid var(--border)}
+.mini-dre-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.7px}
+.mini-dre-result{font-size:15px;font-weight:700;font-family:'DM Mono',monospace}
+.mini-dre-row{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--border)}
+.mini-dre-row:last-child{border-bottom:none}
+.mini-dre-row-name{font-size:12px;color:var(--text2);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini-dre-bar-wrap{width:50px;height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;flex-shrink:0}
+.mini-dre-bar{height:100%;border-radius:2px}
+.mini-dre-val{font-size:12px;font-family:'DM Mono',monospace;flex-shrink:0;min-width:72px;text-align:right}
+.mini-dre-section{padding:7px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.mini-dre-section-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px}
+/* DRE ACORDEAO */
+.dre-accordion{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.dre-acc-header{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;cursor:pointer;user-select:none;transition:background .15s}
+.dre-acc-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px}
+.dre-acc-val{font-size:14px;font-weight:700;font-family:'DM Mono',monospace;flex-shrink:0;margin-right:10px}
+.dre-acc-arrow{transition:transform .25s;flex-shrink:0}
+.dre-acc-body{display:none}
+.dre-acc-body.open{display:block}
+/* DRE ANALISE */
+.dre-analise-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.dre-analise-header{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;cursor:pointer;user-select:none}
+.dre-analise-body{padding:0 15px 14px;display:none}
+.dre-analise-body.open{display:block}
+.dre-analise-item{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.dre-analise-item:last-child{border-bottom:none}
+.dre-analise-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+.dre-analise-text{font-size:12px;color:var(--text2);line-height:1.55;flex:1}
+.dre-analise-text strong{color:var(--text);font-weight:600}
 </style>
 </head>
 <body>
@@ -485,88 +592,74 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
 <div id="p-dash" class="page on">
   <div class="ph">
     <span class="ptitle">Dashboard</span>
-    <div class="mnav">
-      <button onclick="cm(-1)">‹</button>
-      <span class="mlbl" id="ml1"></span>
-      <button onclick="cm(1)">›</button>
-    </div>
   </div>
 <div class="pc">
-
-  <!-- TOP CARDS -->
+  <!-- AUTH BAR -->
   <div id="auth-bar" style="display:flex;align-items:center;justify-content:space-between;
-  margin:0 14px 0;padding:7px 12px;border-radius:var(--rs);border:1px solid var(--border);
+  margin:0 0 8px;padding:7px 12px;border-radius:var(--rs);border:1px solid var(--border);
   background:var(--bg2);transition:all .3s"></div>
-<div style="height:8px"></div>
-<div id="d-top-cards"></div>
 
-  <!-- GRÁFICO 3 MESES -->
-  <div id="d-chart-3m"></div>
+  <!-- TOP CARDS MES ATUAL -->
+  <div id="d-top-cards"></div>
 
-  <!-- ÚLTIMOS LANÇAMENTOS -->
-  <div id="d-recent-header" style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px">
-    <div style="display:flex;align-items:center;gap:8px">
-      <span class="stitle" style="margin:0">Lançamentos</span>
-      <span id="d-recent-mes-pill" style="font-size:10px;font-weight:600;padding:2px 9px;border-radius:20px;background:rgba(232,213,176,.15);color:var(--accent);border:1px solid rgba(232,213,176,.25)"></span>
-    </div>
-    <button id="d-recent-reset" onclick="resetDashMes()" style="display:none;font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif">← mês atual</button>
-  </div>
-  <div class="txlist" id="d-txlist"></div>
+  <!-- BARRA DE MESES ROLAVEL -->
+  <div class="stitle" style="margin-top:14px;margin-bottom:8px">Fluxo Mensal</div>
+  <div class="dash-months-scroll" id="dash-months-scroll"></div>
+
+  <!-- MINI-DRE DO MES SELECIONADO -->
+  <div id="dash-mini-dre"></div>
 </div>
 </div>
 
-<!-- ══ PAGE: LANÇAMENTOS ══ -->
+<!-- ══ PAGE: LANÇAMENTOS + CONTAS ══ -->
 <div id="p-lanc" class="page">
   <div class="ph">
-    <span class="ptitle">Lançamentos</span>
-    <div class="mnav">
-      <button onclick="cm(-1)">‹</button>
-      <span class="mlbl" id="ml2"></span>
-      <button onclick="cm(1)">›</button>
-    </div>
-  </div>
-<div class="pc">
-
-  <!-- FILTRO POR CONTA (tabs estilizadas) -->
-  <div class="lanc-tabs-wrap" id="lanc-tabs"></div>
-
-  <!-- ORDENAÇÃO -->
-  <div class="conta-sort-bar" style="margin-bottom:10px">
-    <span class="conta-sort-lbl">Ordenar:</span>
-    <button class="sort-btn on" id="lsort-data"  onclick="setLancSort('data',this)">↓ Recente</button>
-    <button class="sort-btn"   id="lsort-maior"  onclick="setLancSort('maior',this)">↓ Maior valor</button>
-    <button class="sort-btn"   id="lsort-menor"  onclick="setLancSort('menor',this)">↑ Menor valor</button>
-    <button class="sort-btn"   id="lsort-alpha"  onclick="setLancSort('alpha',this)">A–Z</button>
-  </div>
-
-  <div class="txlist" id="l-txlist"></div>
-</div>
-</div>
-
-<!-- ══ PAGE: CONTAS ══ -->
-<div id="p-contas" class="page">
-  <div class="ph">
-    <span class="ptitle">Por Conta</span>
+    <span class="ptitle" id="lanc-title">Lançamentos</span>
     <div style="display:flex;align-items:center;gap:8px">
       <div class="mnav">
         <button onclick="cm(-1)">‹</button>
-        <span class="mlbl" id="ml3"></span>
+        <span class="mlbl" id="ml2"></span>
         <button onclick="cm(1)">›</button>
       </div>
-      <button class="inv-add-btn" onclick="abrirGerenciarContas()" style="white-space:nowrap">⚙ Contas</button>
+      <button class="inv-add-btn" id="btn-ger-contas" onclick="abrirGerenciarContas()" style="white-space:nowrap;display:none;align-items:center;gap:5px">⚙ Contas</button>
     </div>
   </div>
 <div class="pc">
-  <!-- PAYMENT SUMMARY -->
-  <div id="pag-summary"></div>
-  <!-- SORT BAR -->
-  <div class="conta-sort-bar">
-    <span class="conta-sort-lbl">Ordenar:</span>
-    <button class="sort-btn on" id="sort-custo" onclick="setContaSort('custo',this)">↓ Maior custo</button>
-    <button class="sort-btn" id="sort-custo-asc" onclick="setContaSort('custo-asc',this)">↑ Menor custo</button>
-    <button class="sort-btn" id="sort-alpha" onclick="setContaSort('alpha',this)">A–Z</button>
+
+  <!-- ABAS: LANÇAMENTOS / POR CONTA -->
+  <div class="ftabs" id="lanc-view-tabs" style="margin-bottom:10px">
+    <div class="ftab on" id="tab-lancamentos" onclick="setLancView('lanc',this)">📋 Lançamentos</div>
+    <div class="ftab" id="tab-contas" onclick="setLancView('contas',this)">💳 Por Conta</div>
   </div>
-  <div class="conta-list" id="contas-list"></div>
+
+  <!-- VIEW: LANÇAMENTOS -->
+  <div id="lanc-view-lanc">
+    <!-- FILTRO POR CONTA -->
+    <div class="lanc-tabs-wrap" id="lanc-tabs"></div>
+    <!-- ORDENAÇÃO -->
+    <div class="conta-sort-bar" style="margin-bottom:10px">
+      <span class="conta-sort-lbl">Ordenar:</span>
+      <button class="sort-btn on" id="lsort-data"  onclick="setLancSort('data',this)">↓ Recente</button>
+      <button class="sort-btn"   id="lsort-maior"  onclick="setLancSort('maior',this)">↓ Maior valor</button>
+      <button class="sort-btn"   id="lsort-menor"  onclick="setLancSort('menor',this)">↑ Menor valor</button>
+      <button class="sort-btn"   id="lsort-alpha"  onclick="setLancSort('alpha',this)">A–Z</button>
+    </div>
+    <div class="txlist" id="l-txlist"></div>
+  </div>
+
+  <!-- VIEW: POR CONTA -->
+  <div id="lanc-view-contas" style="display:none">
+    <!-- PAYMENT SUMMARY -->
+    <div id="pag-summary"></div>
+    <!-- SORT BAR -->
+    <div class="conta-sort-bar" style="margin-bottom:12px">
+      <span class="conta-sort-lbl">Ordenar:</span>
+      <button class="sort-btn on" id="sort-custo" onclick="setContaSort('custo',this)">↓ Maior custo</button>
+      <button class="sort-btn" id="sort-custo-asc" onclick="setContaSort('custo-asc',this)">↑ Menor custo</button>
+      <button class="sort-btn" id="sort-alpha" onclick="setContaSort('alpha',this)">A–Z</button>
+    </div>
+    <div class="conta-list" id="contas-list"></div>
+  </div>
 </div>
 </div>
 
@@ -574,7 +667,6 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
 <div id="p-prev" class="page">
   <div class="ph" style="margin-bottom:10px">
     <span class="ptitle">Investimento</span>
-    <button class="inv-add-btn" onclick="abrirNovoCof()">+ Cofrinho</button>
   </div>
 <div class="pc">
 
@@ -596,6 +688,7 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
   <div id="inv-tab-cofrinhos"><div id="inv-cofrinhos"></div></div>
   <div id="inv-tab-rendimento" style="display:none"><div id="inv-rend-table"></div></div>
   <div id="inv-tab-fluxo" style="display:none"><div class="prev-table" id="prev-table"></div></div>
+</div>
 </div>
 
 <!-- MODAL: MOVIMENTAR COFRINHO -->
@@ -738,14 +831,12 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
     </div>
   </div>
 </div>
-</div>
 
 
 <!-- ══ PAGE: NOTAS ══ -->
 <div id="p-notas" class="page">
   <div class="ph">
     <span class="ptitle">Anotações</span>
-    <button class="inv-add-btn" onclick="abrirNovaNota()">+ Nota</button>
   </div>
 <div class="pc">
   <input class="nota-search" id="nota-search" placeholder="🔍 Buscar notas..." oninput="renderNotas()">
@@ -824,12 +915,7 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
       <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
       <rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>
-    </svg>Lançamentos
-  </button>
-  <button class="nb" onclick="gt('contas',this)">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-      <rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>
-    </svg>Contas
+    </svg>Extrato
   </button>
   <button class="nb" onclick="gt('prev',this)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -850,7 +936,30 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
   </button>
 </nav>
 
-<button class="fab" onclick="openModal()">+</button>
+<button class="fab" id="fab-btn" onclick="fabAction()">+</button>
+
+<!-- MODAL CONFIRMAÇÃO DELETE -->
+<div class="overlay" id="del-overlay" onclick="if(event.target===this)this.classList.remove('on')">
+  <div class="modal" style="padding-bottom:30px">
+    <div class="mhandle"></div>
+    <div style="text-align:center;padding:8px 0 16px">
+      <div style="font-size:32px;margin-bottom:10px">🗑️</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Excluir lançamento?</div>
+      <div id="del-desc" style="font-size:13px;color:var(--text2);margin-bottom:4px"></div>
+      <div id="del-val" style="font-size:18px;font-weight:700;font-family:'DM Mono',monospace;color:var(--red);margin-top:4px"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="document.getElementById('del-overlay').classList.remove('on')"
+        style="flex:1;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:12px;font-size:14px;color:var(--text2);cursor:pointer;font-family:'DM Sans',sans-serif">
+        Cancelar
+      </button>
+      <button id="del-confirm-btn"
+        style="flex:1;background:var(--red);border:none;border-radius:var(--rs);padding:12px;font-size:14px;font-weight:600;color:#000;cursor:pointer;font-family:'DM Sans',sans-serif">
+        Excluir
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL -->
 <div class="overlay" id="overlay" onclick="closeOut(event)">
@@ -1069,32 +1178,74 @@ function txEmoji(t) {
 }
 
 // ═══════════════════════════════════════════
-//  NAVIGATION
+//  NAVIGATION + FAB CONTEXTUAL
 // ═══════════════════════════════════════════
+let currentPage = 'dash';
+
 function gt(page, btn) {
+  // 'contas' agora é sub-view de 'lanc'
+  if(page === 'contas') {
+    currentPage = 'lanc';
+    localStorage.setItem('fin_lastPage', 'lanc');
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+    document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
+    document.getElementById('p-lanc').classList.add('on');
+    btn.classList.add('on');
+    updateFab('lanc');
+    // Ativa sub-view contas
+    const tabContas = document.getElementById('tab-contas');
+    setLancView('contas', tabContas);
+    return;
+  }
+  currentPage = page;
+  localStorage.setItem('fin_lastPage', page);
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
   document.getElementById('p-'+page).classList.add('on');
   btn.classList.add('on');
-  if(page==='dash') renderDash();
-  if(page==='lanc') renderLanc();
-  if(page==='contas') renderContas();
-  if(page==='prev') renderPrev();
+  updateFab(page);
+  if(page==='dash')  renderDash();
+  if(page==='lanc')  renderLanc();
+  if(page==='prev')  renderPrev();
   if(page==='notas') renderNotas();
-  if(page==='dre') renderDRE();
+  if(page==='dre')   renderDRE();
 }
+
+function updateFab(page) {
+  const fab = document.getElementById('fab-btn');
+  if(!fab) return;
+  // DRE: hide fab
+  if(page==='dre') { fab.style.display='none'; return; }
+  fab.style.display='flex';
+  fab.style.fontSize = '24px';
+  fab.textContent = '+';
+}
+
+function fabAction() {
+  switch(currentPage) {
+    case 'dash':
+    case 'lanc':   openModal(); break;
+    case 'prev':   abrirNovoCof(); break;
+    case 'notas':  abrirNovaNota(); break;
+    default:       openModal();
+  }
+}
+let dashSelY = cY, dashSelM = cM;
+
 function cm(d) {
   cM+=d; if(cM>11){cM=0;cY++;} if(cM<0){cM=11;cY--;}
+  // Sync dashboard month selection to new current month
+  dashSelY = cY; dashSelM = cM;
   const l = MONTHS[cM]+' '+cY;
   ['ml1','ml2','ml3','ml4','ml-dre'].forEach(id=>{const el=document.getElementById(id); if(el) el.textContent=l;});
-  if(document.querySelector('.page.on')?.id==='p-dre') renderDRE();
   const active = document.querySelector('.page.on');
   if(active){
     const pg = active.id.replace('p-','');
-    if(pg==='dash') renderDash();
-    if(pg==='lanc') renderLanc();
+    if(pg==='dash')   renderDash();
+    if(pg==='lanc')   renderLanc();
     if(pg==='contas') renderContas();
-    if(pg==='prev') renderPrev();
+    if(pg==='prev')   renderPrev();
+    if(pg==='dre')    renderDRE();
   }
 }
 
@@ -1122,9 +1273,22 @@ function txHTML(t) {
   </div>`;
 }
 
+let _pendingDelId = null;
+
 function delTx(id) {
-  D.transactions = D.transactions.filter(t=>t.id!==id);
-  save(); renderDash(); renderLanc(); renderContas();
+  const t = D.transactions.find(x=>x.id===id);
+  if(!t) return;
+  _pendingDelId = id;
+  const sign = t.type==='income' ? '+' : '-';
+  document.getElementById('del-desc').textContent = t.desc;
+  document.getElementById('del-val').textContent = sign + fmt(t.value).replace('R$\u00a0','R$ ');
+  document.getElementById('del-val').style.color = t.type==='income' ? 'var(--green)' : 'var(--red)';
+  document.getElementById('del-confirm-btn').onclick = () => {
+    D.transactions = D.transactions.filter(x=>x.id!==_pendingDelId);
+    save(); renderDash(); renderLanc(); renderContas();
+    document.getElementById('del-overlay').classList.remove('on');
+  };
+  document.getElementById('del-overlay').classList.add('on');
 }
 
 // ═══════════════════════════════════════════
@@ -1135,17 +1299,11 @@ function renderDash() {
   const inc = sumInc(txs), exp = sumExp(txs), bal = inc-exp;
   const pct = inc>0 ? Math.min(100,Math.round(exp/inc*100)) : 0;
 
-  // ── TOP CARDS ──
-  const incDelta = (() => {
-    let pm=cM-1,py=cY; if(pm<0){pm=11;py--;} 
-    const prevInc = sumInc(monthTx(py,pm));
-    return prevInc>0 ? Math.round((inc-prevInc)/prevInc*100) : null;
-  })();
-  const expDelta = (() => {
-    let pm=cM-1,py=cY; if(pm<0){pm=11;py--;} 
-    const prevExp = sumExp(monthTx(py,pm));
-    return prevExp>0 ? Math.round((exp-prevExp)/prevExp*100) : null;
-  })();
+  let pm=cM-1,py=cY; if(pm<0){pm=11;py--;}
+  const prevInc = sumInc(monthTx(py,pm));
+  const prevExp = sumExp(monthTx(py,pm));
+  const incDelta = prevInc>0 ? Math.round((inc-prevInc)/prevInc*100) : null;
+  const expDelta = prevExp>0 ? Math.round((exp-prevExp)/prevExp*100) : null;
 
   document.getElementById('d-top-cards').innerHTML = `
     <div class="dash-top">
@@ -1163,163 +1321,148 @@ function renderDash() {
       </div>
     </div>
     <div class="dash-saldo" style="background:${bal>=0?'rgba(74,222,128,.06)':'rgba(248,113,113,.06)'};border-color:${bal>=0?'rgba(74,222,128,.2)':'rgba(248,113,113,.2)'}">
-      <div class="dash-saldo-left" style="flex:1">
+      <div style="flex:1">
         <div class="dash-saldo-lbl" style="color:${bal>=0?'var(--green)':'var(--red)'}">Saldo do mês</div>
-        <div style="margin-bottom:8px">
-          <div class="dash-saldo-val" style="color:${bal>=0?'var(--green)':'var(--red)'}">${bal>=0?'+':''}${fmt(bal)}</div>
-        </div>
+        <div class="dash-saldo-val" style="color:${bal>=0?'var(--green)':'var(--red)'};margin-bottom:8px">${bal>=0?'+':''}${fmt(bal)}</div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
           <span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.6px">Comprometimento</span>
-          <span id="bb-pct" style="font-size:12px;font-family:'DM Mono',monospace;font-weight:600;color:${pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--text2)'}">${pct}%</span>
+          <span style="font-size:12px;font-family:'DM Mono',monospace;font-weight:600;color:${pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--text2)'}">${pct}%</span>
         </div>
-        <div class="btrack" style="margin-bottom:5px"><div class="bfill ${pct>=100?'over':pct>=80?'warn':'ok'}" id="bb-fill" style="width:${pct}%"></div></div>
-        <div class="bdet"><span id="bb-spent" style="font-size:10px;color:var(--text3)">Saídas: ${fmt(exp)}</span><span id="bb-inc" style="font-size:10px;color:var(--text3)">Entradas: ${fmt(inc)}</span></div>
+        <div class="btrack" style="margin-bottom:5px"><div class="bfill ${pct>=100?'over':pct>=80?'warn':'ok'}" style="width:${pct}%"></div></div>
+        <div class="bdet"><span style="font-size:10px;color:var(--text3)">Saídas: ${fmt(exp)}</span><span style="font-size:10px;color:var(--text3)">Entradas: ${fmt(inc)}</span></div>
       </div>
     </div>`;
 
-  // ── 3-MONTH CHART ──
-  render3mChart();
-
-  // ── RECENTES ──
-  renderDashRecent();
+  renderDashMonthsBar();
+  renderDashMiniDRE(dashSelY, dashSelM);
 }
 
-// Mês selecionado no gráfico (null = mês atual do calendário)
-let dashSelectedMes = null; // {y, m}
-
-function resetDashMes() {
-  dashSelectedMes = null;
-  renderDashRecent();
-  render3mChart();
-}
-
-function selectDashMes(y, m) {
-  // Toggle: se já está selecionado, volta para atual
-  if(dashSelectedMes && dashSelectedMes.y===y && dashSelectedMes.m===m) {
-    dashSelectedMes = null;
-  } else {
-    dashSelectedMes = {y, m};
-  }
-  renderDashRecent();
-  render3mChart();
-}
-
-function renderDashRecent() {
-  const sel = dashSelectedMes || {y: cY, m: cM};
-  const txs = monthTx(sel.y, sel.m);
-  const recent = [...txs].sort((a,b)=>new Date(b.date)-new Date(a.date));
-  const isCurrentNav = sel.y===cY && sel.m===cM;
-
-  const pill = document.getElementById('d-recent-mes-pill');
-  const resetBtn = document.getElementById('d-recent-reset');
-  if(pill) pill.textContent = MONTHS[sel.m]+' '+sel.y;
-  if(resetBtn) resetBtn.style.display = isCurrentNav ? 'none' : 'block';
-
-  const el = document.getElementById('d-txlist');
-  el.innerHTML = recent.length
-    ? recent.slice(0,8).map(txHTML).join('')
-    : `<div class="empty"><div class="ei">💸</div><p>Sem lançamentos em ${MONTHS[sel.m]} ${sel.y}.</p></div>`;
-}
-
-function render3mChart() {
+function renderDashMonthsBar() {
+  // Ordem cronológica: 6 meses atrás → mês atual (esquerda→direita)
   const months = [];
-  for(let offset=-1; offset<=1; offset++) {
-    let m=cM+offset, y=cY;
-    if(m<0){m+=12;y--;} if(m>11){m-=12;y++;}
-    const txs = monthTx(y,m);
-    const inc = sumInc(txs), exp = sumExp(txs);
-    const isSelected = dashSelectedMes && dashSelectedMes.y===y && dashSelectedMes.m===m;
-    months.push({ m, y, inc, exp, sal:inc-exp,
-      isCurrent: offset===0, isPrev: offset===-1, isNext: offset===1, isSelected });
+  for(let offset = -6; offset <= 0; offset++) {
+    let m = cM + offset, y = cY;
+    if(m < 0){ m += 12; y--; } if(m > 11){ m -= 12; y++; }
+    const txs = monthTx(y, m);
+    const inc = sumInc(txs), exp = sumExp(txs), sal = inc - exp;
+    months.push({y, m, inc, exp, sal, hasData: txs.length > 0});
   }
+  const maxExp = Math.max(...months.map(mo=>mo.exp), 1);
 
-  const maxVal = Math.max(...months.flatMap(mo=>[mo.inc, mo.exp]), 1);
-
-  const colHTML = months.map(mo => {
-    const wi = Math.round(mo.inc/maxVal*100);
-    const we = Math.round(mo.exp/maxVal*100);
-    const salColor = mo.sal>=0 ? 'var(--green)' : 'var(--red)';
-    const isHighlight = mo.isSelected || (!dashSelectedMes && mo.isCurrent);
-
-    // Column background
-    const colBg = isHighlight
-      ? mo.isCurrent
-        ? 'background:rgba(232,213,176,.06);border:1px solid rgba(232,213,176,.2);border-radius:12px'
-        : mo.isNext
-          ? 'background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.18);border-radius:12px'
-          : 'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px'
-      : 'border:1px solid transparent;border-radius:12px';
-
-    // Label style
-    const labelStyle = mo.isCurrent
-      ? `background:rgba(232,213,176,.18);color:var(--accent);border:1px solid rgba(232,213,176,.35)`
-      : mo.isNext
-        ? `background:rgba(96,165,250,.1);color:var(--blue);border:1px solid rgba(96,165,250,.25)`
-        : `background:var(--bg3);color:var(--text3);border:1px solid var(--border)`;
-
-    const tagLabel = mo.isCurrent ? 'atual' : mo.isNext ? 'próx.' : 'ant.';
-    const dim = !isHighlight ? 'opacity:.55' : '';
-
-    // Bar opacity: highlight = full, others = dimmed
-    const incOpacity = isHighlight ? (mo.isCurrent?'.9':'.7') : '.25';
-    const expOpacity = isHighlight ? (mo.isCurrent?'.9':'.7') : '.25';
-
-    // Value size
-    const valSize = isHighlight ? '11px' : '10px';
-    const valWeight = isHighlight ? '600' : '400';
-    const saldoSize = isHighlight ? '14px' : '11px';
-    const saldoWeight = isHighlight ? '700' : '500';
-
-    return `<div class="chart3m-col" style="${colBg};padding:10px 8px;cursor:pointer;transition:all .2s;${dim}"
-      onclick="selectDashMes(${mo.y},${mo.m})">
-
-      <!-- MÊS LABEL -->
-      <div style="${labelStyle};border-radius:20px;padding:4px 0;text-align:center;font-size:10px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:4px">
+  const html = months.map(mo => {
+    const isSel = mo.y === dashSelY && mo.m === dashSelM;
+    const isCur = mo.y === cY && mo.m === cM;
+    const barW = Math.round(mo.exp / maxExp * 100);
+    const salColor = mo.sal >= 0 ? 'var(--green)' : 'var(--red)';
+    return `<div class="dash-month-pill${isSel?' on':''}${isCur?' cur':''}"
+      onclick="selectDashMonth(${mo.y},${mo.m})"
+      style="${isCur?'border-color:rgba(232,213,176,.4);':''}">
+      <div class="dmp-mes" style="display:flex;flex-direction:column;align-items:center;gap:1px">
         <span>${MS[mo.m]}</span>
-        <span style="opacity:.55;font-weight:400;font-size:9px">${tagLabel}</span>
+        ${isCur?'<span style="font-size:8px;opacity:.6;font-weight:500;color:var(--accent)">atual</span>':''}
       </div>
-
-      <!-- ENTRADA -->
-      <div style="margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:9px;color:var(--green);font-weight:700;letter-spacing:.3px">ENT.</span>
-          <span style="font-size:${valSize};font-family:'DM Mono',monospace;color:var(--green);font-weight:${valWeight}">${fmtS(mo.inc)}</span>
-        </div>
-        <div class="chart3m-bar-track">
-          <div class="chart3m-bar-fill" style="width:${wi}%;background:rgba(74,222,128,${incOpacity})"></div>
-        </div>
+      <div class="dmp-sal" style="color:${mo.hasData ? salColor : 'var(--text4)'}">
+        ${mo.hasData ? (mo.sal>=0?'+':'')+fmtS(mo.sal) : '—'}
       </div>
-
-      <!-- SAÍDA -->
-      <div style="margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:9px;color:var(--red);font-weight:700;letter-spacing:.3px">SAÍ.</span>
-          <span style="font-size:${valSize};font-family:'DM Mono',monospace;color:var(--red);font-weight:${valWeight}">${fmtS(mo.exp)}</span>
-        </div>
-        <div class="chart3m-bar-track">
-          <div class="chart3m-bar-fill" style="width:${we}%;background:rgba(248,113,113,${expOpacity})"></div>
-        </div>
-      </div>
-
-      <!-- SALDO -->
-      <div style="border-top:1px solid ${isHighlight?'rgba(255,255,255,.12)':'rgba(255,255,255,.05)'};padding-top:8px;text-align:center">
-        <div style="font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">saldo</div>
-        <div style="font-size:${saldoSize};font-weight:${saldoWeight};font-family:'DM Mono',monospace;color:${salColor}">${mo.sal>=0?'+':''}${fmtS(mo.sal)}</div>
-      </div>
-
+      <div class="dmp-bar"><div class="dmp-bar-fill" style="width:${barW}%;background:${mo.sal>=0?'var(--green)':'var(--red)'}"></div></div>
     </div>`;
   }).join('');
 
-  document.getElementById('d-chart-3m').innerHTML = `
-    <div class="chart3m" style="padding:14px 12px">
-      <div class="chart3m-header" style="margin-bottom:10px">
-        <span class="chart3m-title">Fluxo mensal</span>
-        <div style="font-size:10px;color:var(--text3)">toque num mês para filtrar</div>
-      </div>
-      <div class="chart3m-cols" style="gap:6px">${colHTML}</div>
-    </div>`;
+  const el = document.getElementById('dash-months-scroll');
+  el.innerHTML = html;
+  // Scroll automático até o mês atual (último à direita)
+  setTimeout(() => {
+    const pills = el.querySelectorAll('.dash-month-pill');
+    const selIdx = months.findIndex(mo=>mo.y===dashSelY&&mo.m===dashSelM);
+    const target = pills[selIdx] || pills[pills.length - 1];
+    if(target) target.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
+  }, 60);
 }
 
+function selectDashMonth(y, m) {
+  dashSelY = y; dashSelM = m;
+  renderDashMonthsBar();
+  renderDashMiniDRE(y, m);
+}
+
+function renderDashMiniDRE(y, m) {
+  const txs = monthTx(y, m);
+  const inc = sumInc(txs), exp = sumExp(txs), res = inc - exp;
+  const margem = inc > 0 ? res/inc*100 : 0;
+  const mesLabel = MONTHS[m] + ' ' + y;
+  const resColor = res >= 0 ? 'var(--green)' : 'var(--red)';
+
+  if(!txs.length) {
+    document.getElementById('dash-mini-dre').innerHTML =
+      `<div style="text-align:center;padding:24px 16px;color:var(--text3);font-size:13px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r)">
+        Sem lançamentos em ${mesLabel}
+      </div>`;
+    return;
+  }
+
+  const expByDesc = {};
+  txs.filter(t=>t.type==='expense').forEach(t=>{
+    expByDesc[t.desc] = (expByDesc[t.desc]||0) + t.value;
+  });
+  const topExp = Object.entries(expByDesc).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  const maxE = Math.max(...topExp.map(r=>r[1]), 1);
+
+  const incByDesc = {};
+  txs.filter(t=>t.type==='income').forEach(t=>{
+    incByDesc[t.desc] = (incByDesc[t.desc]||0) + t.value;
+  });
+  const topInc = Object.entries(incByDesc).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const maxI = Math.max(...topInc.map(r=>r[1]), 1);
+
+  const pct = inc > 0 ? Math.min(100, Math.round(exp/inc*100)) : 0;
+
+  document.getElementById('dash-mini-dre').innerHTML = `
+    <div class="mini-dre">
+      <div class="mini-dre-header">
+        <div>
+          <div class="mini-dre-title" style="color:var(--text2)">${mesLabel}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">Margem ${margem.toFixed(1)}% · ${pct}% comprometido</div>
+        </div>
+        <div class="mini-dre-result" style="color:${resColor}">${res>=0?'+':''}${fmt(res)}</div>
+      </div>
+      <div class="mini-dre-section">
+        <span class="mini-dre-section-lbl" style="color:var(--green)">↑ Receitas</span>
+        <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--green)">${fmt(inc)}</span>
+      </div>
+      ${topInc.map(([desc,val])=>{
+        const w = Math.round(val/maxI*100);
+        return `<div class="mini-dre-row">
+          <div class="mini-dre-row-name">${desc}</div>
+          <div class="mini-dre-bar-wrap"><div class="mini-dre-bar" style="width:${w}%;background:var(--green)"></div></div>
+          <div class="mini-dre-val" style="color:var(--green)">+${fmt(val)}</div>
+        </div>`;
+      }).join('')}
+      <div class="mini-dre-section">
+        <span class="mini-dre-section-lbl" style="color:var(--red)">↓ Despesas</span>
+        <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--red)">${fmt(exp)}</span>
+      </div>
+      ${topExp.map(([desc,val])=>{
+        const w = Math.round(val/maxE*100);
+        return `<div class="mini-dre-row">
+          <div class="mini-dre-row-name">${desc}</div>
+          <div class="mini-dre-bar-wrap"><div class="mini-dre-bar" style="width:${w}%;background:var(--red)"></div></div>
+          <div class="mini-dre-val" style="color:var(--red)">-${fmt(val)}</div>
+        </div>`;
+      }).join('')}
+      ${Object.keys(expByDesc).length > topExp.length ?
+        `<div style="padding:6px 14px 8px;font-size:11px;color:var(--text3);text-align:center">
+          + ${Object.keys(expByDesc).length - topExp.length} outros itens · ver DRE completo
+        </div>` : ''}
+      <div style="padding:12px 14px;background:${res>=0?'rgba(74,222,128,.05)':'rgba(248,113,113,.05)'};
+        border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px">= Resultado Líquido</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">Margem ${margem.toFixed(1)}%</div>
+        </div>
+        <div style="font-size:17px;font-weight:700;font-family:'DM Mono',monospace;color:${resColor}">${res>=0?'+':''}${fmt(res)}</div>
+      </div>
+    </div>`;
+}
 // ═══════════════════════════════════════════
 //  GERENCIAR CONTAS
 // ═══════════════════════════════════════════
@@ -1339,9 +1482,16 @@ function populateContaSelect() {
 
 function abrirGerenciarContas() {
   initContas();
+  // Fecha form se estiver aberto
+  const gcForm = document.getElementById('gc-form');
+  if(gcForm) gcForm.style.display = 'none';
+  // Renderiza a lista de contas no modal
   renderGcList();
-  fecharGcForm();
-  document.getElementById('gc-overlay').classList.add('on');
+  // Abre o overlay — método direto sem classList para garantir
+  const overlay = document.getElementById('gc-overlay');
+  if(overlay) {
+    overlay.classList.add('on');
+  }
 }
 
 function renderGcList() {
@@ -1554,9 +1704,32 @@ function applyLancList() {
     '<div class="empty"><div class="ei">📋</div><p>Nenhum lançamento encontrado.</p></div>';
 }
 
+// Sub-view atual dentro da aba Extrato: 'lanc' | 'contas'
+let lancView = 'lanc';
+
+function setLancView(view, el) {
+  lancView = view;
+  // Toggle tabs
+  document.querySelectorAll('#lanc-view-tabs .ftab').forEach(t => t.classList.remove('on'));
+  if(el) el.classList.add('on');
+  // Toggle views
+  document.getElementById('lanc-view-lanc').style.display   = view === 'lanc'   ? 'block' : 'none';
+  document.getElementById('lanc-view-contas').style.display = view === 'contas' ? 'block' : 'none';
+  // Show/hide ⚙ Contas button
+  const btnGer = document.getElementById('btn-ger-contas');
+  if(btnGer) btnGer.style.display = view === 'contas' ? 'inline-flex' : 'none';
+  // Update page title
+  const title = document.getElementById('lanc-title');
+  if(title) title.textContent = view === 'lanc' ? 'Lançamentos' : 'Por Conta';
+  // Render the active view
+  if(view === 'lanc')   { buildLancTabs(); applyLancList(); }
+  if(view === 'contas') renderContas();
+}
+
 function renderLanc() {
-  buildLancTabs();
-  applyLancList();
+  // Render whichever sub-view is active
+  if(lancView === 'lanc') { buildLancTabs(); applyLancList(); }
+  else renderContas();
 }
 
 // txHTML estilizado com identidade do banco
@@ -1808,13 +1981,13 @@ function renderContas() {
             <div class="conta-row-left">
               ${r.type==='expense'?`
               <div onclick="togglePago('${conta.replace(/'/g,"\\'")}','${r.desc.replace(/'/g,"\\'")}');event.stopPropagation()"
-                style="width:18px;height:18px;border-radius:5px;border:1.5px solid ${paid?meta.accent:'rgba(255,255,255,.2)'};background:${paid?meta.accent:'transparent'};display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s">
+                style="width:18px;height:18px;border-radius:5px;border:1.5px solid ${paid?cDef.cor:'rgba(255,255,255,.2)'};background:${paid?cDef.cor:'transparent'};display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s">
                 ${paid?`<svg viewBox="0 0 12 12" width="10" height="10" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`:''}
               </div>`:''}
               <div class="conta-row-name" style="color:rgba(255,255,255,0.55);${paid?'text-decoration:line-through':''}">${r.desc}</div>
               ${r.type==='expense'&&barW>0?`<div class="conta-row-bar-wrap"><div class="conta-row-bar" style="width:${barW}%;background:${cDef.cor}66"></div></div>`:''}
             </div>
-            <div class="conta-row-val ${r.type==='income'?'i':''}" style="color:${r.type==='income'?meta.accent:meta.light};${paid?'text-decoration:line-through':''}">${r.type==='income'?'+':'-'}${fmt(r.total)}</div>
+            <div class="conta-row-val ${r.type==='income'?'i':''}" style="color:${r.type==='income'?cDef.cor:'rgba(255,255,255,.85)'};${paid?'text-decoration:line-through':''}">${r.type==='income'?'+':'-'}${fmt(r.total)}</div>
             ${pct>0?`<div class="conta-row-pct" style="color:${cDef.cor}88">${pct}%</div>`:''}
           </div>`;
         }).join('')}
@@ -1827,13 +2000,50 @@ function renderContas() {
 //  INVESTIMENTO — COFRINHOS v4
 // ═══════════════════════════════════════════
 
-const CDI_ANUAL = 0.1490;
-const CDI_MENSAL_BRUTO = Math.pow(1 + CDI_ANUAL * 1.20, 1/12) - 1;
+// ── CDI DINÂMICO (BCB API) ─────────────────
+let CDI_ANUAL = 0.1490; // fallback
+const CDI_MULT = 1.15;  // 115% do CDI
+
+async function fetchCDI() {
+  try {
+    // BCB série 4389 = CDI acumulado mensal (% a.m.)
+    const url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.4389/dados/ultimos/1?formato=json';
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('BCB offline');
+    const data = await r.json();
+    if(data && data[0] && data[0].valor) {
+      const cdiMensal = parseFloat(data[0].valor.replace(',','.')) / 100;
+      // Converte de mensal para anual: (1+m)^12 - 1
+      CDI_ANUAL = Math.pow(1 + cdiMensal, 12) - 1;
+      // Salva no localStorage para uso offline
+      localStorage.setItem('fin_cdi', CDI_ANUAL.toString());
+      atualizarLabelCDI();
+    }
+  } catch(e) {
+    // Usa fallback do localStorage ou padrão
+    const saved = localStorage.getItem('fin_cdi');
+    if(saved) CDI_ANUAL = parseFloat(saved);
+    console.warn('CDI fallback:', CDI_ANUAL);
+  }
+}
+
+function atualizarLabelCDI() {
+  // Atualiza labels de CDI na UI
+  document.querySelectorAll('.cdi-label').forEach(el => {
+    el.textContent = (CDI_ANUAL*100).toFixed(2)+'% a.a.';
+  });
+}
+
+// Chama ao iniciar
+fetchCDI();
+function getCDIMensalBruto() { return Math.pow(1 + CDI_ANUAL * CDI_MULT, 1/12) - 1; }
+function getCDIMensalLiq()   { return getCDIMensalBruto() * (1 - IR_ALIQ); }
 const IR_ALIQ = 0.175;
-const CDI_MENSAL_LIQ = CDI_MENSAL_BRUTO * (1 - IR_ALIQ);
 
 function calcRendMensal(saldo) {
-  const turb = Math.min(saldo, 10000) * CDI_MENSAL_LIQ;
+  const liq = getCDIMensalLiq();
+  const bruto = getCDIMensalBruto();
+  const turb = Math.min(saldo, 10000) * liq;
   const norm = Math.max(0, saldo - 10000) * (Math.pow(1+CDI_ANUAL,1/12)-1)*(1-IR_ALIQ);
   return turb + norm;
 }
@@ -1931,7 +2141,7 @@ function renderInv() {
       <div>
         <div class="it-lbl">Rend. est./mês</div>
         <div class="it-val" style="color:var(--blue)">${fmt(totalRend)}</div>
-        <div style="font-size:9px;color:var(--text3);margin-top:2px">120% CDI líq.</div>
+        <div style="font-size:9px;color:var(--text3);margin-top:2px">115% CDI líq. <span class="cdi-label">${(CDI_ANUAL*100).toFixed(2)}% a.a.</span></div>
       </div>
       <div>
         <div class="it-lbl">Mov. no mês</div>
@@ -2017,10 +2227,16 @@ function renderInv() {
       </div>
       ${histHTML}
     </div>`;
-  }).join('') + `<div style="font-size:10px;color:var(--text3);text-align:center;padding:8px 0">CDI 14,90% a.a. · IR 17,5% · estimativa, não garantido</div>`;
+  }).join('') + `<div style="font-size:10px;color:var(--text3);text-align:center;padding:8px 0">115% CDI ${(CDI_ANUAL*100).toFixed(2)}% a.a. · IR 17,5% · estimativa, não garantido</div>`;
 
   if(invTab==='rendimento') renderRendTable();
   if(invTab==='fluxo') renderFluxo2026();
+  // Atualiza footer CDI
+  setTimeout(()=>{
+    document.querySelectorAll('.cdi-label').forEach(el => {
+      el.textContent = (CDI_ANUAL*100).toFixed(2)+'% a.a.';
+    });
+  }, 0);
 }
 
 function confirmarExclusao(id) {
@@ -2159,7 +2375,9 @@ function abrirMovInv(cofId, op) {
   document.getElementById('inv-modal-title').textContent = def ? def.icon+' '+def.nome : 'Cofrinho';
   document.getElementById('inv-val').value='';
   document.getElementById('inv-desc').value='';
-  document.getElementById('inv-date').value=new Date().toISOString().split('T')[0];
+  // Data padrão = hoje + 1 mês
+  const d1m = new Date(); d1m.setMonth(d1m.getMonth()+1);
+  document.getElementById('inv-date').value = d1m.toISOString().split('T')[0];
   const destSel = document.getElementById('inv-dest');
   destSel.innerHTML = getCofList().filter(c=>c.id!==cofId).map(c=>`<option value="${c.id}">${c.icon} ${c.nome}</option>`).join('');
   setInvOp(op||'aporte');
@@ -2318,7 +2536,7 @@ function renderFluxo2026() {
             icon: c.icon||'💰',
             cor: c.cor||'#4ade80',
             tipo: 'rendimento',
-            desc: 'Rendimento 120% CDI',
+            desc: 'Rendimento 115% CDI',
             val: rend,
             sinal: rend
           });
@@ -2664,6 +2882,64 @@ function deletarNota(id) {
 //  DRE
 // ═══════════════════════════════════════════
 
+function toggleDreAcc(id) {
+  const body = document.getElementById('dre-acc-'+id);
+  const arrow = document.getElementById('dre-arrow-'+id);
+  if(!body) return;
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  if(arrow) arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+let dreAnaliseOpen = false;
+function toggleDreAnalise() {
+  dreAnaliseOpen = !dreAnaliseOpen;
+  const body = document.getElementById('dre-analise-body');
+  const arrow = document.getElementById('dre-analise-arrow');
+  if(body) body.classList.toggle('open', dreAnaliseOpen);
+  if(arrow) arrow.style.transform = dreAnaliseOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function gerarAnalise(totalInc, totalExp, resultado, margem, expTxs, fixedExp, varExp) {
+  const pct = totalInc > 0 ? totalExp/totalInc*100 : 0;
+  const items = [];
+
+  // Resultado geral
+  if(resultado >= 0) {
+    if(margem >= 30) items.push({icon:'🟢', text:`<strong>Ótimo resultado!</strong> Você poupou ${margem.toFixed(1)}% da receita — acima de 30%, excelente disciplina financeira.`});
+    else if(margem >= 15) items.push({icon:'🟡', text:`<strong>Resultado positivo.</strong> Margem de ${margem.toFixed(1)}%. Considere aumentar para 20%+ ajustando despesas variáveis.`});
+    else items.push({icon:'🟠', text:`<strong>Resultado positivo, mas margem baixa</strong> (${margem.toFixed(1)}%). Qualquer imprevisto pode zerar o saldo — recomenda-se revisar despesas.`});
+  } else {
+    items.push({icon:'🔴', text:`<strong>Resultado negativo:</strong> despesas superaram receitas em ${fmt(Math.abs(resultado))}. Identifique cortes possíveis nas despesas variáveis.`});
+  }
+
+  // Comprometimento
+  if(pct >= 100) items.push({icon:'⚠️', text:`<strong>Atenção:</strong> 100% da receita foi comprometida. Nenhuma margem para imprevistos.`});
+  else if(pct >= 85) items.push({icon:'⚠️', text:`<strong>Alto comprometimento:</strong> ${pct.toFixed(0)}% da receita em despesas. Recomenda-se manter abaixo de 80%.`});
+
+  // Fixo vs variável
+  if(totalInc > 0) {
+    const pctFix = fixedExp/totalInc*100;
+    const pctVar = varExp/totalInc*100;
+    if(pctFix > 50) items.push({icon:'📌', text:`<strong>Despesas fixas altas:</strong> ${pctFix.toFixed(1)}% da receita. Custos fixos acima de 50% limitam a flexibilidade financeira.`});
+    if(pctVar > 0) items.push({icon:'🔀', text:`Despesas variáveis representam <strong>${pctVar.toFixed(1)}% da receita</strong> — são o principal ponto de ajuste para melhorar a margem.`});
+  }
+
+  // Top despesa
+  if(expTxs.length > 0) {
+    const byDesc = {};
+    expTxs.forEach(t=>{ byDesc[t.desc]=(byDesc[t.desc]||0)+t.value; });
+    const top = Object.entries(byDesc).sort((a,b)=>b[1]-a[1])[0];
+    if(top && totalInc > 0) {
+      const pctTop = (top[1]/totalInc*100).toFixed(1);
+      items.push({icon:'💡', text:`Maior despesa: <strong>${top[0]}</strong> (${fmt(top[1])} · ${pctTop}% da receita).`});
+    }
+  }
+
+  if(!items.length) items.push({icon:'📊', text:'Adicione receitas e despesas para gerar uma análise detalhada do seu mês.'});
+  return items;
+}
+
 function renderDRE() {
   const ym = cY+'-'+(cM<9?'0':'')+(cM+1);
   document.getElementById('ml-dre').textContent = MONTHS[cM]+' '+cY;
@@ -2676,40 +2952,26 @@ function renderDRE() {
   const resultado = totalInc - totalExp;
   const margem = totalInc>0 ? resultado/totalInc*100 : 0;
 
-  // Previous month
   let pmY=cY, pmM=cM-1; if(pmM<0){pmM=11;pmY--;}
   const prevTxs = monthTx(pmY,pmM);
   const prevInc = sumInc(prevTxs), prevExp = sumExp(prevTxs);
   const prevRes = prevInc - prevExp;
 
-  // Year to date
   let ytdInc=0,ytdExp=0;
-  for(let m=0;m<=cM;m++){
-    const t=monthTx(cY,m); ytdInc+=sumInc(t); ytdExp+=sumExp(t);
-  }
+  for(let m=0;m<=cM;m++){const t=monthTx(cY,m); ytdInc+=sumInc(t); ytdExp+=sumExp(t);}
   const ytdRes = ytdInc - ytdExp;
 
-  // By conta
   const contas = getContaList().map(c=>c.nome);
 
-  // Group income rows by desc
   const incByDesc={};
-  incTxs.forEach(t=>{
-    if(!incByDesc[t.desc]) incByDesc[t.desc]={val:0,conta:t.conta};
-    incByDesc[t.desc].val+=t.value;
-  });
-  // Group expense rows by desc
+  incTxs.forEach(t=>{if(!incByDesc[t.desc]) incByDesc[t.desc]={val:0,conta:t.conta}; incByDesc[t.desc].val+=t.value;});
   const expByDesc={};
-  expTxs.forEach(t=>{
-    if(!expByDesc[t.desc]) expByDesc[t.desc]={val:0,conta:t.conta};
-    expByDesc[t.desc].val+=t.value;
-  });
+  expTxs.forEach(t=>{if(!expByDesc[t.desc]) expByDesc[t.desc]={val:0,conta:t.conta}; expByDesc[t.desc].val+=t.value;});
   const incRows = Object.entries(incByDesc).sort((a,b)=>b[1].val-a[1].val);
   const expRows = Object.entries(expByDesc).sort((a,b)=>b[1].val-a[1].val);
   const maxInc = Math.max(...incRows.map(r=>r[1].val),1);
   const maxExp = Math.max(...expRows.map(r=>r[1].val),1);
 
-  // By conta summary
   const contaRows = contas.map(nome=>{
     const ct = txs.filter(t=>t.conta===nome);
     const ci = sumInc(ct), ce = sumExp(ct);
@@ -2717,20 +2979,31 @@ function renderDRE() {
     return {nome, ci, ce, net:ci-ce};
   }).filter(Boolean).sort((a,b)=>b.ce-a.ce);
 
-  // Investimento
   initCofrinhos();
   const cofs = getCofList();
   const totalInvAtual = cofs.reduce((s,c)=>s+saldoAtual(c.id),0);
   const totalMetaInv  = cofs.reduce((s,c)=>s+(c.meta||0),0);
   const pctMeta = totalMetaInv>0 ? Math.min(100,Math.round(totalInvAtual/totalMetaInv*100)) : 0;
-  const pctInvRec = totalInc>0 ? (totalInvAtual/totalInc*100) : 0;
-
   const varRes = prevRes!==0 ? Math.round((resultado-prevRes)/Math.abs(prevRes)*100) : null;
+
+  const fixedExp = expTxs.filter(t=>t.natureza==='fixo').reduce((s,t)=>s+t.value,0);
+  const varExp   = expTxs.filter(t=>t.natureza==='variavel').reduce((s,t)=>s+t.value,0);
+  const semClass = expTxs.filter(t=>!t.natureza).reduce((s,t)=>s+t.value,0);
 
   function pctBar(val,max,color,opacity='.7') {
     const w=Math.round(val/max*100);
     return `<div class="dre-row-bar-wrap"><div class="dre-row-bar" style="width:${w}%;background:${color};opacity:${opacity}"></div></div>`;
   }
+
+  function accArrow(id) {
+    return `<svg id="dre-arrow-${id}" viewBox="0 0 10 6" width="14" height="14" fill="none" class="dre-acc-arrow">
+      <path d="M1 1l4 4 4-4" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
+  // Análise automática
+  const analiseItems = gerarAnalise(totalInc, totalExp, resultado, margem, expTxs, fixedExp, varExp);
+  const resColor = resultado>=0?'var(--green)':'var(--red)';
 
   const html = `
   <!-- CABEÇALHO RESULTADO -->
@@ -2746,7 +3019,7 @@ function renderDRE() {
       </div>
       <div>
         <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Resultado</div>
-        <div style="font-size:15px;font-weight:700;font-family:'DM Mono',monospace;color:${resultado>=0?'var(--green)':'var(--red)'}">${resultado>=0?'+':''}${fmt(resultado)}</div>
+        <div style="font-size:15px;font-weight:700;font-family:'DM Mono',monospace;color:${resColor}">${resultado>=0?'+':''}${fmt(resultado)}</div>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--border)">
@@ -2761,47 +3034,80 @@ function renderDRE() {
     </div>
   </div>
 
-  <!-- RECEITAS -->
-  <div class="dre-card">
-    <div class="dre-section-head">
-      <span class="dre-section-lbl" style="color:var(--green)">↑ Receitas</span>
-      <span class="dre-section-val" style="color:var(--green)">${fmt(totalInc)}</span>
+  <!-- ANÁLISE INTELIGENTE -->
+  <div class="dre-analise-card">
+    <div class="dre-analise-header" onclick="toggleDreAnalise()">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🧠</span>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text)">Análise do mês</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:1px">${analiseItems.length} ponto${analiseItems.length!==1?'s':''} · toque para expandir</div>
+        </div>
+      </div>
+      <svg id="dre-analise-arrow" viewBox="0 0 10 6" width="14" height="14" fill="none" style="transition:transform .25s;flex-shrink:0">
+        <path d="M1 1l4 4 4-4" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
     </div>
-    ${incRows.map(([desc,{val,conta}])=>{
-      const pct = totalInc>0?val/totalInc*100:0;
-      const cDef = getContaDef(conta);
-      return `<div class="dre-row">
-        <div class="dre-row-name">${desc}</div>
-        ${pctBar(val,maxInc,'var(--green)')}
-        <div class="dre-row-val" style="color:var(--green)">+${fmt(val)}</div>
-        <div class="dre-row-pct">${pct.toFixed(1)}%</div>
-      </div>`;
-    }).join('')}
-    <div class="dre-total">
-      <span class="dre-total-lbl">Total receitas</span>
-      <span class="dre-total-val" style="color:var(--green)">${fmt(totalInc)}</span>
+    <div class="dre-analise-body" id="dre-analise-body">
+      ${analiseItems.map(it=>`
+        <div class="dre-analise-item">
+          <div class="dre-analise-icon">${it.icon}</div>
+          <div class="dre-analise-text">${it.text}</div>
+        </div>`).join('')}
     </div>
   </div>
 
-  <!-- DESPESAS -->
-  <div class="dre-card">
-    <div class="dre-section-head">
-      <span class="dre-section-lbl" style="color:var(--red)">↓ Despesas</span>
-      <span class="dre-section-val" style="color:var(--red)">${fmt(totalExp)}</span>
+  <!-- RECEITAS (ACORDEÃO) -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('rec')">
+      <div style="flex:1">
+        <div class="dre-acc-lbl" style="color:var(--green)">↑ Receitas</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${incRows.length} item${incRows.length!==1?'s':''}</div>
+      </div>
+      <span class="dre-acc-val" style="color:var(--green)">${fmt(totalInc)}</span>
+      ${accArrow('rec')}
     </div>
-    ${expRows.map(([desc,{val,conta}])=>{
-      const pct = totalInc>0?val/totalInc*100:0;
-      const cDef = getContaDef(conta);
-      return `<div class="dre-row">
-        <div class="dre-row-name">${desc}</div>
-        ${pctBar(val,maxExp,'var(--red)')}
-        <div class="dre-row-val" style="color:var(--red)">-${fmt(val)}</div>
-        <div class="dre-row-pct" style="color:var(--red)">${pct.toFixed(1)}%</div>
-      </div>`;
-    }).join('')}
-    <div class="dre-total">
-      <span class="dre-total-lbl">Total despesas</span>
-      <span class="dre-total-val" style="color:var(--red)">${fmt(totalExp)}</span>
+    <div class="dre-acc-body open" id="dre-acc-rec">
+      ${incRows.map(([desc,{val}])=>{
+        const pct = totalInc>0?val/totalInc*100:0;
+        return `<div class="dre-row">
+          <div class="dre-row-name">${desc}</div>
+          ${pctBar(val,maxInc,'var(--green)')}
+          <div class="dre-row-val" style="color:var(--green)">+${fmt(val)}</div>
+          <div class="dre-row-pct">${pct.toFixed(1)}%</div>
+        </div>`;
+      }).join('')}
+      <div class="dre-total">
+        <span class="dre-total-lbl">Total receitas</span>
+        <span class="dre-total-val" style="color:var(--green)">${fmt(totalInc)}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DESPESAS (ACORDEÃO) -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('exp')">
+      <div style="flex:1">
+        <div class="dre-acc-lbl" style="color:var(--red)">↓ Despesas</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${expRows.length} item${expRows.length!==1?'s':''}</div>
+      </div>
+      <span class="dre-acc-val" style="color:var(--red)">${fmt(totalExp)}</span>
+      ${accArrow('exp')}
+    </div>
+    <div class="dre-acc-body open" id="dre-acc-exp">
+      ${expRows.map(([desc,{val}])=>{
+        const pct = totalInc>0?val/totalInc*100:0;
+        return `<div class="dre-row">
+          <div class="dre-row-name">${desc}</div>
+          ${pctBar(val,maxExp,'var(--red)')}
+          <div class="dre-row-val" style="color:var(--red)">-${fmt(val)}</div>
+          <div class="dre-row-pct" style="color:var(--red)">${pct.toFixed(1)}%</div>
+        </div>`;
+      }).join('')}
+      <div class="dre-total">
+        <span class="dre-total-lbl">Total despesas</span>
+        <span class="dre-total-val" style="color:var(--red)">${fmt(totalExp)}</span>
+      </div>
     </div>
   </div>
 
@@ -2809,126 +3115,186 @@ function renderDRE() {
   <div class="dre-card">
     <div class="dre-result" style="background:${resultado>=0?'rgba(74,222,128,.06)':'rgba(248,113,113,.06)'}">
       <div>
-        <div class="dre-result-lbl" style="color:${resultado>=0?'var(--green)':'var(--red)'}">= Resultado Líquido</div>
+        <div class="dre-result-lbl" style="color:${resColor}">= Resultado Líquido</div>
         <div style="font-size:10px;color:var(--text3);margin-top:2px">Margem ${margem.toFixed(1)}% da receita</div>
       </div>
-      <div class="dre-result-val" style="color:${resultado>=0?'var(--green)':'var(--red)'}">${resultado>=0?'+':''}${fmt(resultado)}</div>
+      <div class="dre-result-val" style="color:${resColor}">${resultado>=0?'+':''}${fmt(resultado)}</div>
     </div>
   </div>
 
-  <!-- POR CONTA -->
-  <div class="dre-card">
-    <div class="dre-section-head">
-      <span class="dre-section-lbl" style="color:var(--text2)">Por conta</span>
+  <!-- POR CONTA (ACORDEÃO) -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('conta')">
+      <div style="flex:1">
+        <div class="dre-acc-lbl" style="color:var(--text2)">Por Conta</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${contaRows.length} conta${contaRows.length!==1?'s':''}</div>
+      </div>
+      ${accArrow('conta')}
     </div>
-    ${contaRows.map(({nome,ci,ce,net})=>{
-      const cDef = getContaDef(nome);
-      return `<div class="dre-row" style="align-items:center">
-        <div style="width:22px;height:22px;border-radius:5px;overflow:hidden;flex-shrink:0">${makeLogoSvg(cDef,22)}</div>
-        <div class="dre-row-name" style="margin-left:4px">${nome}</div>
-        ${ci>0?`<div style="font-size:10px;color:var(--green);font-family:'DM Mono',monospace;flex-shrink:0">+${fmt(ci)}</div>`:''}
-        <div class="dre-row-val" style="color:${net>=0?'var(--green)':'var(--red)'}">${net>=0?'+':''}${fmt(net)}</div>
-      </div>`;
-    }).join('')}
+    <div class="dre-acc-body" id="dre-acc-conta">
+      ${contaRows.map(({nome,ci,ce,net})=>{
+        const cDef = getContaDef(nome);
+        return `<div class="dre-row" style="align-items:center">
+          <div style="width:22px;height:22px;border-radius:5px;overflow:hidden;flex-shrink:0">${makeLogoSvg(cDef,22)}</div>
+          <div class="dre-row-name" style="margin-left:4px">${nome}</div>
+          ${ci>0?`<div style="font-size:10px;color:var(--green);font-family:'DM Mono',monospace;flex-shrink:0">+${fmt(ci)}</div>`:''}
+          <div class="dre-row-val" style="color:${net>=0?'var(--green)':'var(--red)'}">${net>=0?'+':''}${fmt(net)}</div>
+        </div>`;
+      }).join('')}
+    </div>
   </div>
 
-  <!-- FIXO vs VARIÁVEL -->
-  <div class="dre-card">
-    <div class="dre-section-head">
-      <span class="dre-section-lbl" style="color:var(--text2)">Fixo vs Variável</span>
+  <!-- FIXO vs VARIÁVEL (ACORDEÃO) -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('fv')">
+      <div style="flex:1">
+        <div class="dre-acc-lbl" style="color:var(--text2)">Fixo vs Variável</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">
+          📌 ${(totalInc>0?fixedExp/totalInc*100:0).toFixed(1)}% fixo · 🔀 ${(totalInc>0?varExp/totalInc*100:0).toFixed(1)}% variável
+        </div>
+      </div>
+      ${accArrow('fv')}
     </div>
-    ${(()=>{
-      const fixedExp = expTxs.filter(t=>t.natureza==='fixo').reduce((s,t)=>s+t.value,0);
-      const varExp   = expTxs.filter(t=>t.natureza==='variavel').reduce((s,t)=>s+t.value,0);
-      const semClass = expTxs.filter(t=>!t.natureza).reduce((s,t)=>s+t.value,0);
-      const pctF = totalInc>0?fixedExp/totalInc*100:0;
-      const pctV = totalInc>0?varExp/totalInc*100:0;
-      const pctS = totalInc>0?semClass/totalInc*100:0;
-      return `<div style="padding:14px 15px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="dre-acc-body" id="dre-acc-fv">
+      <div style="padding:14px 15px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
           <div style="font-size:9px;color:var(--amber);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px">📌 Fixo</div>
           <div style="font-size:16px;font-weight:700;font-family:'DM Mono',monospace;color:var(--amber)">${fmt(fixedExp)}</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px">${pctF.toFixed(1)}% da receita</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">${(totalInc>0?fixedExp/totalInc*100:0).toFixed(1)}% da receita</div>
           <div style="height:4px;background:var(--bg4);border-radius:2px;margin-top:6px;overflow:hidden">
-            <div style="width:${Math.min(100,pctF)}%;height:100%;background:var(--amber);border-radius:2px"></div>
+            <div style="width:${Math.min(100,totalInc>0?fixedExp/totalInc*100:0)}%;height:100%;background:var(--amber);border-radius:2px"></div>
           </div>
         </div>
         <div>
           <div style="font-size:9px;color:var(--purple);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px">🔀 Variável</div>
           <div style="font-size:16px;font-weight:700;font-family:'DM Mono',monospace;color:var(--purple)">${fmt(varExp)}</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px">${pctV.toFixed(1)}% da receita</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">${(totalInc>0?varExp/totalInc*100:0).toFixed(1)}% da receita</div>
           <div style="height:4px;background:var(--bg4);border-radius:2px;margin-top:6px;overflow:hidden">
-            <div style="width:${Math.min(100,pctV)}%;height:100%;background:var(--purple);border-radius:2px"></div>
+            <div style="width:${Math.min(100,totalInc>0?varExp/totalInc*100:0)}%;height:100%;background:var(--purple);border-radius:2px"></div>
           </div>
         </div>
       </div>
       ${semClass>0?`<div style="padding:8px 15px;border-top:1px solid var(--border);font-size:10px;color:var(--text3);text-align:center">
-        Sem classificação: ${fmt(semClass)} (${pctS.toFixed(1)}%) — use 📌/🔀 ao lançar despesas
-      </div>`:''}`;
-    })()}
-  </div>
-
-    <!-- ACUMULADO ANO -->
-  <div class="dre-card">
-    <div class="dre-section-head">
-      <span class="dre-section-lbl" style="color:var(--text2)">Acumulado ${cY}</span>
-    </div>
-    <div style="padding:12px 15px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-      <div>
-        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Receitas</div>
-        <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:var(--green)">${fmt(ytdInc)}</div>
-      </div>
-      <div>
-        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Despesas</div>
-        <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:var(--red)">${fmt(ytdExp)}</div>
-      </div>
-      <div>
-        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Resultado</div>
-        <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:${ytdRes>=0?'var(--green)':'var(--red)'}">${ytdRes>=0?'+':''}${fmt(ytdRes)}</div>
-      </div>
+        Sem classificação: ${fmt(semClass)} — use 📌/🔀 ao lançar despesas
+      </div>`:''}
     </div>
   </div>
 
-  <!-- INVESTIMENTO -->
-  <div class="dre-card">
-    <div class="dre-section-head">
-      <span class="dre-section-lbl" style="color:var(--blue)">💰 Total investido</span>
-      <span class="dre-section-val" style="color:var(--green)">${fmt(totalInvAtual)}</span>
-    </div>
-    ${cofs.map(c=>{
-      const s=saldoAtual(c.id); if(!s&&!c.meta) return '';
-      const pct=c.meta>0?Math.min(100,Math.round(s/c.meta*100)):0;
-      return `<div class="dre-row">
-        <span style="font-size:15px;flex-shrink:0">${c.icon||'💰'}</span>
-        <div class="dre-row-name">${c.nome}</div>
-        ${c.meta>0?`<div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">${pct}%</div>`:''}
-        <div class="dre-row-val" style="color:var(--green)">${fmt(s)}</div>
-      </div>`;
-    }).join('')}
-    <div style="padding:12px 15px;border-top:1px solid var(--border)">
-      ${totalMetaInv>0?`
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-        <span style="font-size:11px;color:var(--text2);font-weight:600">Atingimento da meta total</span>
-        <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--amber);font-weight:600">${pctMeta}%</span>
+  <!-- ACUMULADO ANO (ACORDEÃO) -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('ytd')">
+      <div style="flex:1">
+        <div class="dre-acc-lbl" style="color:var(--text2)">Acumulado ${cY}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">Jan–${MS[cM]}</div>
       </div>
-      <div class="dre-inv-bar-track"><div class="dre-inv-bar-fill" style="width:${pctMeta}%;background:var(--amber)"></div></div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px">
-        <span style="font-size:10px;color:var(--text3)">Investido: ${fmt(totalInvAtual)}</span>
-        <span style="font-size:10px;color:var(--text3)">Meta: ${fmt(totalMetaInv)}</span>
-      </div>`:'<div style="font-size:11px;color:var(--text3);text-align:center">Defina metas nos cofrinhos para ver o atingimento</div>'}
+      <span class="dre-acc-val" style="color:${ytdRes>=0?'var(--green)':'var(--red)'}">${ytdRes>=0?'+':''}${fmt(ytdRes)}</span>
+      ${accArrow('ytd')}
+    </div>
+    <div class="dre-acc-body" id="dre-acc-ytd">
+      <div style="padding:12px 15px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Receitas</div>
+          <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:var(--green)">${fmt(ytdInc)}</div>
+        </div>
+        <div>
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Despesas</div>
+          <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:var(--red)">${fmt(ytdExp)}</div>
+        </div>
+        <div>
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Resultado</div>
+          <div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;color:${ytdRes>=0?'var(--green)':'var(--red)'}">${ytdRes>=0?'+':''}${fmt(ytdRes)}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INVESTIMENTO (ACORDEÃO) -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('inv')">
+      <div style="flex:1">
+        <div class="dre-acc-lbl" style="color:var(--blue)">💰 Investimentos</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${cofs.length} cofrinho${cofs.length!==1?'s':''}</div>
+      </div>
+      <span class="dre-acc-val" style="color:var(--green)">${fmt(totalInvAtual)}</span>
+      ${accArrow('inv')}
+    </div>
+    <div class="dre-acc-body" id="dre-acc-inv">
+      ${cofs.map(c=>{
+        const s=saldoAtual(c.id); if(!s&&!c.meta) return '';
+        const pct=c.meta>0?Math.min(100,Math.round(s/c.meta*100)):0;
+        return `<div class="dre-row">
+          <span style="font-size:15px;flex-shrink:0">${c.icon||'💰'}</span>
+          <div class="dre-row-name">${c.nome}</div>
+          ${c.meta>0?`<div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">${pct}%</div>`:''}
+          <div class="dre-row-val" style="color:var(--green)">${fmt(s)}</div>
+        </div>`;
+      }).join('')}
+      <div style="padding:12px 15px;border-top:1px solid var(--border)">
+        ${totalMetaInv>0?`
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:11px;color:var(--text2);font-weight:600">Atingimento da meta</span>
+          <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--amber);font-weight:600">${pctMeta}%</span>
+        </div>
+        <div class="dre-inv-bar-track"><div class="dre-inv-bar-fill" style="width:${pctMeta}%;background:var(--amber)"></div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px">
+          <span style="font-size:10px;color:var(--text3)">Investido: ${fmt(totalInvAtual)}</span>
+          <span style="font-size:10px;color:var(--text3)">Meta: ${fmt(totalMetaInv)}</span>
+        </div>`:'<div style="font-size:11px;color:var(--text3);text-align:center">Defina metas nos cofrinhos para ver o atingimento</div>'}
+      </div>
     </div>
   </div>`;
 
   document.getElementById('dre-content').innerHTML = html;
 }
 
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
 function init() {
   initContas();
   populateContaSelect();
-  const l = MONTHS[cM]+' '+cY;
-  ['ml1','ml2','ml3','ml4','ml-dre'].forEach(id=>{const el=document.getElementById(id); if(el) el.textContent=l;});
-  if(document.querySelector('.page.on')?.id==='p-dre') renderDRE();
-  renderDash();
+
+  // Memória de navegação — restaura a última aba
+  const savedPage = localStorage.getItem('fin_lastPage') || 'dash';
+  const validPages = ['dash','lanc','prev','notas','dre'];
+  const startPage = validPages.includes(savedPage) ? savedPage : 'dash';
+
+  // Encontra o botão da nav correspondente
+  const navMap = {
+    dash:   0, lanc:  1, contas: 1,
+    prev:   2, notas: 3, dre:    4
+  };
+  const navBtns = document.querySelectorAll('.nb');
+  const targetBtn = navBtns[navMap[startPage]];
+
+  // Ativa a página correta
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+  navBtns.forEach(b => b.classList.remove('on'));
+  document.getElementById('p-' + startPage)?.classList.add('on');
+  if(targetBtn) targetBtn.classList.add('on');
+  currentPage = startPage;
+  updateFab(startPage);
+
+  // Atualiza labels de mês em todas as abas
+  const l = MONTHS[cM] + ' ' + cY;
+  ['ml1','ml2','ml3','ml4','ml-dre'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = l;
+  });
+
+  // Sincroniza seleção do dashboard com mês atual
+  dashSelY = cY; dashSelM = cM;
+
+  // Renderiza a página inicial
+  if(startPage === 'dash')   renderDash();
+  if(startPage === 'lanc')   renderLanc();
+  if(startPage === 'contas') renderContas();
+  if(startPage === 'prev')   renderPrev();
+  if(startPage === 'notas')  renderNotas();
+  if(startPage === 'dre')    renderDRE();
+
+  // Se não começou no dash, renderiza em background para cache
+  if(startPage !== 'dash') renderDash();
 }
 init();
 </script>
