@@ -310,9 +310,11 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
 .badge.parc{background:var(--adim);color:var(--amber)}
 .txamt{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;flex-shrink:0}
 .txamt.i{color:var(--green)} .txamt.e{color:var(--red)}
-.txdel{display:none;background:var(--rdim);border:none;color:var(--red);border-radius:var(--rs);
+.txdel{background:var(--rdim);border:none;color:var(--red);border-radius:var(--rs);
   padding:3px 8px;font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;flex-shrink:0}
-.txitem:hover .txdel{display:block}
+.txedit{background:var(--bg4);border:none;border-radius:var(--rs);
+  padding:3px 6px;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;flex-shrink:0;opacity:.7}
+.txedit:hover{opacity:1}
 .migrated-dot{width:5px;height:5px;border-radius:50%;background:var(--text4);display:inline-block;flex-shrink:0}
 
 /* EMPTY */
@@ -682,7 +684,7 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
   <div class="ftabs" style="margin-bottom:10px">
     <div class="ftab on" onclick="setInvTab('cofrinhos',this)">Cofrinhos</div>
     <div class="ftab" onclick="setInvTab('rendimento',this)">Rendimento</div>
-    <div class="ftab" onclick="setInvTab('fluxo',this)">Fluxo 2026</div>
+    <div class="ftab" onclick="setInvTab('fluxo',this)">Fluxo</div>
   </div>
 
   <div id="inv-tab-cofrinhos"><div id="inv-cofrinhos"></div></div>
@@ -903,6 +905,109 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
 </div>
 </div>
 
+<!-- MODAL: EDITAR LANÇAMENTO -->
+<div class="overlay" id="edit-tx-overlay" onclick="if(event.target===this)this.classList.remove('on')">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="mtitle" style="margin:0">Editar lançamento</div>
+      <span id="edit-tx-parc-badge" style="font-size:11px;background:var(--adim);color:var(--amber);
+        border-radius:10px;padding:2px 10px;display:none"></span>
+    </div>
+    <input type="hidden" id="edit-tx-id">
+
+    <!-- TIPO -->
+    <div class="ttoggle" style="margin-bottom:14px">
+      <button class="tbtn e" id="edit-bt-exp" onclick="setEditTipo('e')">↓ Despesa</button>
+      <button class="tbtn i" id="edit-bt-inc" onclick="setEditTipo('i')">↑ Receita</button>
+    </div>
+
+    <!-- VALOR -->
+    <div class="fg">
+      <label class="fl">Valor</label>
+      <div class="awrap"><span class="apfx">R$</span>
+        <input class="fi" id="edit-tx-val" type="number" placeholder="0,00" inputmode="decimal" step="0.01">
+      </div>
+    </div>
+
+    <!-- DESCRIÇÃO -->
+    <div class="fg">
+      <label class="fl">Descrição</label>
+      <input class="fi" id="edit-tx-desc" type="text" placeholder="Descrição...">
+    </div>
+
+    <!-- CONTA + DATA -->
+    <div class="frow">
+      <div class="fg">
+        <label class="fl">Conta</label>
+        <select class="fsel" id="edit-tx-conta"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Data</label>
+        <input class="fi" id="edit-tx-date" type="date">
+      </div>
+    </div>
+
+    <!-- NATUREZA (só despesas) -->
+    <div class="fg" id="edit-fv-row">
+      <label class="fl">Natureza <span style="font-weight:400;color:var(--text3)">(para DRE)</span></label>
+      <div style="display:flex;gap:8px">
+        <button id="edit-fv-fixo" onclick="setEditFV('fixo')"
+          style="flex:1;padding:9px;border-radius:var(--rs);border:1.5px solid rgba(251,191,36,.35);
+          background:rgba(251,191,36,.12);color:var(--amber);font-family:'DM Sans',sans-serif;
+          font-size:13px;font-weight:600;cursor:pointer;transition:all .15s">📌 Fixo</button>
+        <button id="edit-fv-variavel" onclick="setEditFV('variavel')"
+          style="flex:1;padding:9px;border-radius:var(--rs);border:1.5px solid var(--border);
+          background:var(--bg3);color:var(--text3);font-family:'DM Sans',sans-serif;
+          font-size:13px;font-weight:500;cursor:pointer;transition:all .15s">🔀 Variável</button>
+      </div>
+    </div>
+
+    <!-- AVISO parcela/recorrente -->
+    <div id="edit-tx-info" style="display:none;background:var(--bdim);border:1px solid rgba(96,165,250,.2);
+      border-radius:var(--rs);padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--blue);line-height:1.5">
+    </div>
+
+    <button class="bsub" onclick="salvarEditTx()">Salvar alteração</button>
+  </div>
+</div>
+
+<!-- MODAL: FECHAR BALANÇO -->
+<div class="overlay" id="balanco-overlay" onclick="if(event.target===this)this.classList.remove('on')">
+  <div class="modal" style="padding-bottom:30px">
+    <div class="mhandle"></div>
+    <div style="text-align:center;padding:4px 0 16px">
+      <div style="font-size:36px;margin-bottom:10px">📦</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px">Fechar Balanço do Ano</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:16px">
+        Esta ação irá:<br>
+        <span style="color:var(--green)">✓</span> Gerar e baixar um arquivo HTML com todo o histórico<br>
+        <span style="color:var(--green)">✓</span> Preservar cofrinhos com o saldo atual como saldo inicial<br>
+        <span style="color:var(--red)">✗</span> Apagar lançamentos, movimentações e notas<br>
+        <span style="color:var(--blue)">↺</span> Começar o novo ano do zero
+      </div>
+      <div style="background:var(--rdim);border:1px solid rgba(248,113,113,.25);border-radius:var(--rs);
+        padding:10px 12px;margin-bottom:16px;font-size:12px;color:var(--red);text-align:left">
+        ⚠️ <strong>Ação irreversível.</strong> O arquivo HTML gerado será seu único backup.
+        Salve-o em lugar seguro antes de continuar.
+      </div>
+      <div id="balanco-ano-label" style="font-size:13px;color:var(--text2);margin-bottom:16px"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="document.getElementById('balanco-overlay').classList.remove('on')"
+        style="flex:1;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);
+        padding:13px;font-size:14px;color:var(--text2);cursor:pointer;font-family:'DM Sans',sans-serif">
+        Cancelar
+      </button>
+      <button onclick="executarFechamentoBalanco()"
+        style="flex:1;background:var(--amber);border:none;border-radius:var(--rs);
+        padding:13px;font-size:14px;font-weight:700;color:#0d0d0d;cursor:pointer;font-family:'DM Sans',sans-serif">
+        Confirmar e Salvar
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- NAV -->
 <nav class="nav">
   <button class="nb on" onclick="gt('dash',this)">
@@ -915,7 +1020,7 @@ body{max-width:430px;margin:0 auto;padding-bottom:80px}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
       <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
       <rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>
-    </svg>Extrato
+    </svg>Contas
   </button>
   <button class="nb" onclick="gt('prev',this)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -1108,7 +1213,21 @@ const CONTA_COLOR = new Proxy({},{get:(_,k)=>(D.contasDef&&D.contasDef[k])?D.con
 const CONTA_CSS   = new Proxy({},{get:(_,k)=>k.toLowerCase().replace(/\s+/g,'_')});
 
 // Start on March 2026 — first editable month
-let cY = 2026, cM = 2; // March = index 2
+// Mês global — persiste entre sessões
+function loadSavedMonth() {
+  const saved = localStorage.getItem('fin_mes');
+  if(saved) {
+    const [y,m] = saved.split('-').map(Number);
+    if(!isNaN(y) && !isNaN(m) && m>=0 && m<=11) return {y, m};
+  }
+  return {y:2026, m:2}; // março 2026 como padrão
+}
+const _savedMes = loadSavedMonth();
+let cY = _savedMes.y, cM = _savedMes.m;
+
+function saveCurrentMonth() {
+  localStorage.setItem('fin_mes', cY+'-'+cM);
+}
 let curTipo = 'e', curPag = 'unico', curFV = 'fixo';
 let lancFilter = 'all';
 let barChart = null;
@@ -1234,19 +1353,28 @@ let dashSelY = cY, dashSelM = cM;
 
 function cm(d) {
   cM+=d; if(cM>11){cM=0;cY++;} if(cM<0){cM=11;cY--;}
-  // Sync dashboard month selection to new current month
+  saveCurrentMonth();
   dashSelY = cY; dashSelM = cM;
+  updateAllMonthLabels();
+  reRenderActivePage();
+}
+
+function updateAllMonthLabels() {
   const l = MONTHS[cM]+' '+cY;
-  ['ml1','ml2','ml3','ml4','ml-dre'].forEach(id=>{const el=document.getElementById(id); if(el) el.textContent=l;});
+  ['ml1','ml2','ml3','ml4','ml-dre'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.textContent=l;
+  });
+}
+
+function reRenderActivePage() {
   const active = document.querySelector('.page.on');
-  if(active){
-    const pg = active.id.replace('p-','');
-    if(pg==='dash')   renderDash();
-    if(pg==='lanc')   renderLanc();
-    if(pg==='contas') renderContas();
-    if(pg==='prev')   renderPrev();
-    if(pg==='dre')    renderDRE();
-  }
+  if(!active) return;
+  const pg = active.id.replace('p-','');
+  if(pg==='dash')  renderDash();
+  if(pg==='lanc')  renderLanc();
+  if(pg==='prev')  renderPrev();
+  if(pg==='notas') renderNotas();
+  if(pg==='dre')   renderDRE();
 }
 
 // ═══════════════════════════════════════════
@@ -1295,6 +1423,8 @@ function delTx(id) {
 //  DASHBOARD
 // ═══════════════════════════════════════════
 function renderDash() {
+  // Garante que a seleção do dash está sincronizada com o mês global
+  dashSelY = cY; dashSelM = cM;
   const txs = monthTx(cY,cM);
   const inc = sumInc(txs), exp = sumExp(txs), bal = inc-exp;
   const pct = inc>0 ? Math.min(100,Math.round(exp/inc*100)) : 0;
@@ -1338,28 +1468,38 @@ function renderDash() {
 }
 
 function renderDashMonthsBar() {
-  // Ordem cronológica: 6 meses atrás → mês atual (esquerda→direita)
+  // Mostra 12 meses: 9 anteriores + atual + 2 futuros
+  // O mês real de hoje para marcar "hoje"
+  const today = new Date();
+  const realY = today.getFullYear(), realM = today.getMonth();
+
   const months = [];
-  for(let offset = -6; offset <= 0; offset++) {
+  for(let offset = -9; offset <= 2; offset++) {
     let m = cM + offset, y = cY;
     if(m < 0){ m += 12; y--; } if(m > 11){ m -= 12; y++; }
     const txs = monthTx(y, m);
     const inc = sumInc(txs), exp = sumExp(txs), sal = inc - exp;
-    months.push({y, m, inc, exp, sal, hasData: txs.length > 0});
+    const isReal = (y === realY && m === realM);
+    months.push({y, m, inc, exp, sal, hasData: txs.length > 0, isReal, offset});
   }
   const maxExp = Math.max(...months.map(mo=>mo.exp), 1);
 
-  const html = months.map(mo => {
+  const html = months.map((mo, idx) => {
     const isSel = mo.y === dashSelY && mo.m === dashSelM;
-    const isCur = mo.y === cY && mo.m === cM;
     const barW = Math.round(mo.exp / maxExp * 100);
     const salColor = mo.sal >= 0 ? 'var(--green)' : 'var(--red)';
-    return `<div class="dash-month-pill${isSel?' on':''}${isCur?' cur':''}"
+    const borderStyle = isSel
+      ? 'border-color:var(--accent);background:rgba(232,213,176,.1)'
+      : mo.isReal
+        ? 'border-color:rgba(255,255,255,.15)'
+        : '';
+    return `<div class="dash-month-pill${isSel?' on':''}"
       onclick="selectDashMonth(${mo.y},${mo.m})"
-      style="${isCur?'border-color:rgba(232,213,176,.4);':''}">
-      <div class="dmp-mes" style="display:flex;flex-direction:column;align-items:center;gap:1px">
-        <span>${MS[mo.m]}</span>
-        ${isCur?'<span style="font-size:8px;opacity:.6;font-weight:500;color:var(--accent)">atual</span>':''}
+      style="${borderStyle}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
+        <span class="dmp-mes" style="${isSel?'color:var(--accent)':''}">${MS[mo.m]}</span>
+        <span style="font-size:8px;color:var(--text4);font-weight:400">${mo.y}</span>
+        ${mo.isReal?'<span style="font-size:7px;color:var(--amber);font-weight:600;letter-spacing:.3px">HOJE</span>':''}
       </div>
       <div class="dmp-sal" style="color:${mo.hasData ? salColor : 'var(--text4)'}">
         ${mo.hasData ? (mo.sal>=0?'+':'')+fmtS(mo.sal) : '—'}
@@ -1370,17 +1510,21 @@ function renderDashMonthsBar() {
 
   const el = document.getElementById('dash-months-scroll');
   el.innerHTML = html;
-  // Scroll automático até o mês atual (último à direita)
+  // Scroll para o mês selecionado
   setTimeout(() => {
     const pills = el.querySelectorAll('.dash-month-pill');
     const selIdx = months.findIndex(mo=>mo.y===dashSelY&&mo.m===dashSelM);
-    const target = pills[selIdx] || pills[pills.length - 1];
+    const target = pills[selIdx >= 0 ? selIdx : months.length-3];
     if(target) target.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
   }, 60);
 }
 
 function selectDashMonth(y, m) {
+  // Muda o mês global — todas as abas acompanham
+  cY = y; cM = m;
   dashSelY = y; dashSelM = m;
+  saveCurrentMonth();
+  updateAllMonthLabels();
   renderDashMonthsBar();
   renderDashMiniDRE(y, m);
 }
@@ -1755,8 +1899,13 @@ function txHTMLStyled(t) {
         ${parcTag}${migDot}
       </div>
     </div>
-    <span class="txamt ${t.type==='income'?'i':'e'}" style="color:${t.type==='income'?'var(--green)':def.light||def.color}">${sign}${fmt(t.value)}</span>
-    ${!t.migrated?`<button class="txdel" onclick="delTx(${t.id})">✕</button>`:''}
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+      <span class="txamt ${t.type==='income'?'i':'e'}" style="color:${t.type==='income'?'var(--green)':def.light||def.color}">${sign}${fmt(t.value)}</span>
+      <div style="display:flex;gap:4px">
+        <button class="txedit" onclick="abrirEditTx(${t.id})" title="Editar">✏️</button>
+        ${!t.migrated?`<button class="txdel" onclick="delTx(${t.id})">✕</button>`:''}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2060,7 +2209,7 @@ function initCofrinhos() {
     ];
     seed.forEach(s => {
       D.cofrinhos2[s.id] = { id:s.id, nome:s.nome, icon:s.icon, cor:s.cor, meta:0,
-        movs:[{op:'aporte',val:s.saldo,desc:'Saldo inicial',date:'2026-03-01',ym:'2026-03'}],
+        movs:s.saldo>0?[{op:'aporte',val:s.saldo,desc:'Saldo inicial',date:new Date().toISOString().split('T')[0],ym:new Date().toISOString().slice(0,7)}]:[],
         snapshots:{} };
     });
     save();
@@ -2432,7 +2581,7 @@ function abrirNovoCof() {
   document.getElementById('nc-edit-id').value='';
   document.getElementById('nc-nome').value='';
   document.getElementById('nc-saldo').value='';
-  document.getElementById('nc-data').value='2026-03-01';
+  document.getElementById('nc-data').value=new Date().toISOString().split('T')[0];
   document.getElementById('nc-emoji-row').style.display='block';
   document.getElementById('nc-cor-row').style.display='block';
   document.getElementById('nc-saldo-row').style.display='block';
@@ -2479,7 +2628,7 @@ function salvarCofrinho() {
   } else {
     const id='cof_'+Date.now();
     const saldo=parseFloat(document.getElementById('nc-saldo').value)||0;
-    const data=document.getElementById('nc-data').value||'2026-03-01';
+    const data=document.getElementById('nc-data').value||new Date().toISOString().split('T')[0];
     const ym=data.slice(0,7);
     const movs=saldo>0?[{op:'aporte',val:saldo,desc:'Saldo inicial',date:data,ym}]:[];
     D.cofrinhos2[id]={id,nome,icon:ncEmoji,cor:ncCor,meta:0,movs,snapshots:{}};
@@ -2638,7 +2787,9 @@ function renderPrev() { renderInv(); }
 function openModal() {
   curTipo = 'e';
   curPag = 'unico';
-  document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+  // Data padrão = hoje + 1 mês
+  const _d1m = new Date(); _d1m.setMonth(_d1m.getMonth()+1);
+  document.getElementById('f-date').value = _d1m.toISOString().split('T')[0];
   document.getElementById('f-val').value = '';
   document.getElementById('f-desc').value = '';
   populateContaSelect();
@@ -2696,6 +2847,111 @@ function updateParcPreview() {
     const rest = n-cur+1;
     el.textContent = `${cur}ª de ${n} parcelas · ${rest} restante(s) · Total: ${fmt(val*n)}`;
   } else { el.textContent = 'Preencha o valor e número de parcelas'; }
+}
+
+// ═══════════════════════════════════════════
+//  EDITAR LANÇAMENTO
+// ═══════════════════════════════════════════
+let _editFV = 'fixo';
+
+function abrirEditTx(id) {
+  const t = D.transactions.find(x => x.id === id);
+  if(!t) return;
+
+  document.getElementById('edit-tx-id').value = id;
+  document.getElementById('edit-tx-val').value = t.value;
+  document.getElementById('edit-tx-desc').value = t.desc;
+  document.getElementById('edit-tx-date').value = t.date;
+
+  // Tipo
+  setEditTipo(t.type === 'income' ? 'i' : 'e');
+
+  // Conta
+  const contaSel = document.getElementById('edit-tx-conta');
+  contaSel.innerHTML = getContaList().map(c =>
+    `<option value="${c.nome}" ${c.nome===t.conta?'selected':''}>${c.nome}</option>`
+  ).join('');
+
+  // Natureza
+  _editFV = t.natureza || 'fixo';
+  setEditFV(_editFV);
+
+  // Badge parcela/recorrente
+  const badge = document.getElementById('edit-tx-parc-badge');
+  if(t.parcela) {
+    badge.textContent = `Parcela ${t.parcAtual}/${t.parcTotal}`;
+    badge.style.display = 'inline-block';
+  } else if(t.recorrente) {
+    badge.textContent = 'Recorrente';
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  // Info box
+  const info = document.getElementById('edit-tx-info');
+  if(t.parcela || t.recorrente) {
+    info.style.display = 'block';
+    info.textContent = t.parcela
+      ? `✏️ Editando apenas a parcela ${t.parcAtual}/${t.parcTotal}. As demais parcelas não são afetadas.`
+      : `✏️ Editando apenas este mês da recorrência. Os demais meses não são afetados.`;
+  } else {
+    info.style.display = 'none';
+  }
+
+  document.getElementById('edit-tx-overlay').classList.add('on');
+}
+
+function setEditTipo(t) {
+  document.getElementById('edit-bt-exp').className = 'tbtn e' + (t==='e'?' on':'');
+  document.getElementById('edit-bt-inc').className = 'tbtn i' + (t==='i'?' on':'');
+  // Mostra/oculta natureza (só para despesas)
+  const fvRow = document.getElementById('edit-fv-row');
+  if(fvRow) fvRow.style.display = t==='e' ? 'block' : 'none';
+}
+
+function setEditFV(fv) {
+  _editFV = fv;
+  const btnF = document.getElementById('edit-fv-fixo');
+  const btnV = document.getElementById('edit-fv-variavel');
+  if(!btnF||!btnV) return;
+  if(fv==='fixo') {
+    btnF.style.cssText += ';border-color:var(--amber);background:rgba(251,191,36,.2);color:var(--amber)';
+    btnV.style.cssText += ';border-color:var(--border);background:var(--bg3);color:var(--text3)';
+  } else {
+    btnV.style.cssText += ';border-color:var(--purple);background:rgba(192,132,252,.15);color:var(--purple)';
+    btnF.style.cssText += ';border-color:var(--border);background:var(--bg3);color:var(--text3)';
+  }
+}
+
+function salvarEditTx() {
+  const id = +document.getElementById('edit-tx-id').value;
+  const t = D.transactions.find(x => x.id === id);
+  if(!t) return;
+
+  const val  = parseFloat(document.getElementById('edit-tx-val').value);
+  const desc = document.getElementById('edit-tx-desc').value.trim();
+  const conta = document.getElementById('edit-tx-conta').value;
+  const date = document.getElementById('edit-tx-date').value;
+  const tipo = document.getElementById('edit-bt-inc').classList.contains('on') ? 'income' : 'expense';
+
+  if(!val||val<=0){ alert('Informe um valor válido.'); return; }
+  if(!desc){ alert('Informe uma descrição.'); return; }
+  if(!date){ alert('Informe uma data.'); return; }
+
+  // Aplica apenas neste lançamento específico
+  t.value    = val;
+  t.desc     = desc;
+  t.conta    = conta;
+  t.date     = date;
+  t.type     = tipo;
+  t.classif  = tipo === 'income' ? 'RECEITA' : 'DESPESA';
+  t.natureza = tipo === 'expense' ? _editFV : null;
+
+  save();
+  document.getElementById('edit-tx-overlay').classList.remove('on');
+  renderDash(); renderLanc();
+  if(typeof renderContas === 'function') renderContas();
 }
 
 function addTx() {
@@ -3244,7 +3500,284 @@ function renderDRE() {
     </div>
   </div>`;
 
-  document.getElementById('dre-content').innerHTML = html;
+  // Botão fechar balanço — sempre no final do DRE
+  const btnBalanco = `
+    <div style="margin-top:20px;padding-bottom:8px">
+      <div style="background:var(--bg2);border:1px solid rgba(251,191,36,.2);border-radius:var(--r);
+        padding:16px 15px;text-align:center">
+        <div style="font-size:14px;font-weight:600;color:var(--amber);margin-bottom:4px">📦 Fechar Balanço do Ano</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.55">
+          Gera um arquivo HTML com todo o histórico salvo e reseta o app para um novo ano.
+        </div>
+        <button onclick="abrirModalBalanco()"
+          style="width:100%;background:var(--amber);color:#0d0d0d;border:none;border-radius:var(--rs);
+          padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;
+          letter-spacing:.3px">
+          📥 Fechar Balanço e Salvar Arquivo
+        </button>
+      </div>
+    </div>`;
+
+  document.getElementById('dre-content').innerHTML = html + btnBalanco;
+}
+
+// ═══════════════════════════════════════════
+//  FECHAR BALANÇO
+// ═══════════════════════════════════════════
+
+function abrirModalBalanco() {
+  // Detecta o ano predominante nos lançamentos
+  const anos = D.transactions.map(t => parseInt(t.date.slice(0,4)));
+  const anoSet = [...new Set(anos)].sort();
+  const anoLabel = anoSet.length > 0
+    ? `Balanço de ${anoSet.join(' / ')}`
+    : `Balanço ${new Date().getFullYear()}`;
+  document.getElementById('balanco-ano-label').textContent = anoLabel;
+  document.getElementById('balanco-overlay').classList.add('on');
+}
+
+function executarFechamentoBalanco() {
+  // 1. Gera o arquivo HTML de balanço
+  gerarArquivoBalanco();
+  // 2. Fecha o modal
+  document.getElementById('balanco-overlay').classList.remove('on');
+  // 3. Reseta todos os dados após pequeno delay (garante que download iniciou)
+  setTimeout(() => {
+    resetarDados();
+  }, 800);
+}
+
+function gerarArquivoBalanco() {
+  const anos = [...new Set(D.transactions.map(t=>t.date.slice(0,4)))].sort();
+  const anoLabel = anos.join('-') || new Date().getFullYear();
+  const dataGeracao = new Date().toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric'});
+  const hora = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+
+  // ── Totais gerais ──
+  const totalInc = D.transactions.filter(t=>t.type==='income').reduce((s,t)=>s+t.value,0);
+  const totalExp = D.transactions.filter(t=>t.type==='expense').reduce((s,t)=>s+t.value,0);
+  const resultado = totalInc - totalExp;
+  const fmtVal = n => 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // ── Por mês ──
+  const porMes = {};
+  D.transactions.forEach(t => {
+    const ym = t.date.slice(0,7);
+    if(!porMes[ym]) porMes[ym] = {inc:0, exp:0, txs:[]};
+    if(t.type==='income') porMes[ym].inc += t.value;
+    else porMes[ym].exp += t.value;
+    porMes[ym].txs.push(t);
+  });
+
+  const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                      'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+  const mesesHTML = Object.entries(porMes).sort(([a],[b])=>a.localeCompare(b)).map(([ym, data]) => {
+    const [y,m] = ym.split('-').map(Number);
+    const mesNome = mesesNomes[m-1]+' '+y;
+    const sal = data.inc - data.exp;
+    const txsHtml = [...data.txs].sort((a,b)=>new Date(a.date)-new Date(b.date)).map(t => `
+      <tr>
+        <td>${new Date(t.date+'T12:00:00').toLocaleDateString('pt-BR')}</td>
+        <td>${t.desc}</td>
+        <td>${t.conta}</td>
+        <td style="color:${t.type==='income'?'#4ade80':'#f87171'};text-align:right">
+          ${t.type==='income'?'+':'-'}${fmtVal(t.value)}
+        </td>
+        ${t.parcela?`<td style="color:#fbbf24;font-size:11px">${t.parcAtual}/${t.parcTotal}</td>`:'<td></td>'}
+      </tr>`).join('');
+
+    return `
+      <div class="mes-section">
+        <div class="mes-header">
+          <span>${mesNome}</span>
+          <span class="mes-resultado" style="color:${sal>=0?'#4ade80':'#f87171'}">
+            ${sal>=0?'+':''}${fmtVal(sal)}
+          </span>
+        </div>
+        <div class="mes-summary">
+          <span>Receitas: <strong style="color:#4ade80">${fmtVal(data.inc)}</strong></span>
+          <span>Despesas: <strong style="color:#f87171">${fmtVal(data.exp)}</strong></span>
+        </div>
+        <table>
+          <thead><tr><th>Data</th><th>Descrição</th><th>Conta</th><th>Valor</th><th>Parc.</th></tr></thead>
+          <tbody>${txsHtml}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+
+  // ── Cofrinhos ──
+  const cofs = Object.values(D.cofrinhos2||{});
+  const cofsHTML = cofs.length > 0 ? `
+    <div class="section-title">💰 Cofrinhos / Investimentos</div>
+    <table>
+      <thead><tr><th>Cofrinho</th><th>Movimentações</th><th style="text-align:right">Saldo Final</th></tr></thead>
+      <tbody>
+        ${cofs.map(c => {
+          const saldo = (c.movs||[]).reduce((s,m) => m.op==='retirar'?s-m.val:s+m.val, 0);
+          return `<tr>
+            <td>${c.icon||''} ${c.nome}</td>
+            <td>${(c.movs||[]).length} movimentações</td>
+            <td style="text-align:right;color:#4ade80">${fmtVal(Math.max(0,saldo))}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>` : '';
+
+  // ── Notas ──
+  const notas = D.notas||[];
+  const notasHTML = notas.length > 0 ? `
+    <div class="section-title">📝 Anotações</div>
+    ${notas.map(n => `
+      <div class="nota-item">
+        <div class="nota-titulo">${n.titulo||'(sem título)'}</div>
+        ${n.corpo?`<div class="nota-corpo">${n.corpo}</div>`:''}
+        <div class="nota-meta">${n.tag||'geral'} · ${n.mes||''}</div>
+      </div>`).join('')}` : '';
+
+  // ── HTML completo ──
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Balanço Financeiro ${anoLabel}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0d0d0d; color: #f0ede8;
+    max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #5c5855; margin-bottom: 32px; }
+  .resumo-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 32px; }
+  .resumo-card { background: #161616; border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px; padding: 16px; }
+  .resumo-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .8px; color: #5c5855; margin-bottom: 8px; }
+  .resumo-val { font-size: 22px; font-weight: 700; font-family: monospace; }
+  .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .8px; color: #5c5855; margin: 28px 0 12px; }
+  .mes-section { background: #161616; border: 1px solid rgba(255,255,255,.06);
+    border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
+  .mes-header { display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; background: #1e1e1e; border-bottom: 1px solid rgba(255,255,255,.06);
+    font-weight: 600; font-size: 14px; }
+  .mes-resultado { font-family: monospace; font-size: 15px; font-weight: 700; }
+  .mes-summary { display: flex; gap: 20px; padding: 8px 16px;
+    font-size: 12px; color: #9e9a94; border-bottom: 1px solid rgba(255,255,255,.04); }
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+    color: #5c5855; padding: 8px 16px; text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,.06); }
+  td { font-size: 12px; padding: 8px 16px; border-bottom: 1px solid rgba(255,255,255,.04);
+    color: #9e9a94; }
+  tbody tr:last-child td { border-bottom: none; }
+  .nota-item { background: #161616; border: 1px solid rgba(255,255,255,.06);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 8px; }
+  .nota-titulo { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .nota-corpo { font-size: 12px; color: #9e9a94; line-height: 1.6; margin-bottom: 6px; }
+  .nota-meta { font-size: 10px; color: #5c5855; }
+  .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #3a3836; }
+  @media (max-width: 600px) {
+    .resumo-grid { grid-template-columns: 1fr 1fr; }
+    td, th { padding: 6px 10px; }
+  }
+</style>
+</head>
+<body>
+  <h1>📊 Balanço Financeiro ${anoLabel}</h1>
+  <p class="subtitle">Gerado em ${dataGeracao} às ${hora} · ${D.transactions.length} lançamentos</p>
+
+  <div class="resumo-grid">
+    <div class="resumo-card">
+      <div class="resumo-lbl">Total Receitas</div>
+      <div class="resumo-val" style="color:#4ade80">${fmtVal(totalInc)}</div>
+    </div>
+    <div class="resumo-card">
+      <div class="resumo-lbl">Total Despesas</div>
+      <div class="resumo-val" style="color:#f87171">${fmtVal(totalExp)}</div>
+    </div>
+    <div class="resumo-card">
+      <div class="resumo-lbl">Resultado</div>
+      <div class="resumo-val" style="color:${resultado>=0?'#4ade80':'#f87171'}">
+        ${resultado>=0?'+':''}${fmtVal(resultado)}
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">📅 Histórico Mensal</div>
+  ${mesesHTML || '<p style="color:#5c5855;font-size:13px">Nenhum lançamento registrado.</p>'}
+
+  ${cofsHTML}
+  ${notasHTML}
+
+  <div class="footer">Balanço gerado pelo app Finanças Pessoais · ${dataGeracao}</div>
+</body>
+</html>`;
+
+  // Download do arquivo
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `balanco-financeiro-${anoLabel}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function resetarDados() {
+  // Preserva cofrinhos: mantém estrutura + saldo atual como saldo inicial do novo ano
+  const cofrinhosSalvos = {};
+  const hoje = new Date().toISOString().split('T')[0];
+  const ymHoje = hoje.slice(0, 7);
+
+  Object.values(D.cofrinhos2 || {}).forEach(c => {
+    // Recalcula o saldo atual real
+    const saldoAtualCof = computeSaldo(c.id, ymStr(cY, cM));
+    cofrinhosSalvos[c.id] = {
+      id:   c.id,
+      nome: c.nome,
+      icon: c.icon,
+      cor:  c.cor,
+      meta: c.meta || 0,
+      snapshots: {},
+      // Saldo atual vira o único movimento: "Saldo inicial (balanço AAAA)"
+      movs: saldoAtualCof > 0 ? [{
+        op:   'aporte',
+        val:  saldoAtualCof,
+        desc: `Saldo inicial (balanço ${new Date().getFullYear()})`,
+        date: hoje,
+        ym:   ymHoje
+      }] : []
+    };
+  });
+
+  // Monta o novo estado limpo (com cofrinhos preservados)
+  const novoEstado = {
+    transactions: [],
+    poupanca:     {},
+    rendimentos:  {},
+    cofrinhos2:   cofrinhosSalvos,
+    contasDef:    D.contasDef || {},   // Mantém as contas configuradas
+    pagamentos:   {},
+    notas:        [],
+    dreClassif:   {},
+    metas:        {},
+    nextId:       1
+  };
+
+  // Salva no localStorage
+  localStorage.setItem('fin_v2', JSON.stringify(novoEstado));
+  localStorage.setItem('fin_version', APP_VERSION);
+  localStorage.removeItem('fin_mes');
+  localStorage.removeItem('fin_lastPage');
+
+  // Salva no Firebase
+  if(window.fbSave) window.fbSave(novoEstado);
+
+  // Recarrega o app limpo
+  window.location.reload();
 }
 
 // ═══════════════════════════════════════════
@@ -3282,8 +3815,9 @@ function init() {
     if(el) el.textContent = l;
   });
 
-  // Sincroniza seleção do dashboard com mês atual
+  // Restaura mês salvo (já carregado em cY/cM via loadSavedMonth)
   dashSelY = cY; dashSelM = cM;
+  updateAllMonthLabels();
 
   // Renderiza a página inicial
   if(startPage === 'dash')   renderDash();
