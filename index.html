@@ -2694,17 +2694,44 @@ function toggleDreAnalise() {
 function gerarAnalise(totalInc, totalExp, resultado, margem, expTxs, fixedExp, varExp) {
   const pct = totalInc > 0 ? totalExp/totalInc*100 : 0;
   const items = [];
+  // Resultado
   if(resultado >= 0) {
-    if(margem >= 30) items.push({icon:'🟢', text:`<strong>Ótimo resultado!</strong> Margem de ${margem.toFixed(1)}%.`});
-    else if(margem >= 15) items.push({icon:'🟡', text:`<strong>Resultado positivo.</strong> Margem de ${margem.toFixed(1)}%.`});
-    else items.push({icon:'🟠', text:`<strong>Margem baixa</strong> (${margem.toFixed(1)}%).`});
-  } else { items.push({icon:'🔴', text:`<strong>Resultado negativo:</strong> -${fmt(Math.abs(resultado))}.`}); }
-  if(pct >= 100) items.push({icon:'⚠️', text:`100% da receita comprometida.`});
+    if(margem >= 30) items.push({icon:'🟢', text:`<strong>Ótimo resultado!</strong> Margem de ${margem.toFixed(1)}% — você está poupando bem.`});
+    else if(margem >= 15) items.push({icon:'🟡', text:`<strong>Resultado positivo.</strong> Margem de ${margem.toFixed(1)}%. Há espaço para melhorar.`});
+    else items.push({icon:'🟠', text:`<strong>Margem apertada</strong> (${margem.toFixed(1)}%). Cuidado com gastos extras.`});
+  } else { items.push({icon:'🔴', text:`<strong>Resultado negativo:</strong> -${fmt(Math.abs(resultado))}. Gastos superaram a receita!`}); }
+  // Comprometimento
+  if(pct >= 100) items.push({icon:'⚠️', text:`<strong>Atenção:</strong> 100% da receita comprometida com despesas.`});
+  else if(pct >= 80) items.push({icon:'🟡', text:`<strong>${pct.toFixed(0)}%</strong> da receita comprometida — acima do ideal de 70%.`});
+  // Fixo vs Variável
   if(totalInc > 0) {
     const pctFix = fixedExp/totalInc*100;
-    if(pctFix > 50) items.push({icon:'📌', text:`Despesas fixas: ${pctFix.toFixed(1)}% da receita.`});
+    const pctVar = varExp/totalInc*100;
+    if(pctFix > 50) items.push({icon:'📌', text:`Despesas <strong>fixas</strong> representam ${pctFix.toFixed(1)}% da receita. Ideal: abaixo de 50%.`});
+    if(pctVar > 30) items.push({icon:'🔀', text:`Despesas <strong>variáveis</strong> representam ${pctVar.toFixed(1)}% da receita.`});
   }
-  if(!items.length) items.push({icon:'📊', text:'Adicione dados para gerar análise.'});
+  // Top despesa
+  if(expTxs.length) {
+    const byDesc = {};
+    expTxs.forEach(t=>{ if(!byDesc[t.desc]) byDesc[t.desc]=0; byDesc[t.desc]+=t.value; });
+    const top = Object.entries(byDesc).sort((a,b)=>b[1]-a[1])[0];
+    if(top && totalExp > 0) {
+      const topPct = (top[1]/totalExp*100).toFixed(0);
+      items.push({icon:'📊', text:`Maior gasto: <strong>${top[0]}</strong> (${fmt(top[1])}, ${topPct}% do total).`});
+    }
+    // Quantidade de itens
+    const count = Object.keys(byDesc).length;
+    items.push({icon:'📋', text:`${count} categorias de despesa neste mês. ${expTxs.length} lançamentos no total.`});
+  }
+  // Cofrinhos
+  initCofrinhos();
+  const cofs = getCofList();
+  const totalInv = cofs.reduce((s,c)=>s+saldoAtual(c.id),0);
+  if(totalInv > 0 && totalInc > 0) {
+    const invPct = (totalInv / (totalInc*12) * 100).toFixed(0);
+    items.push({icon:'💰', text:`Total investido: <strong>${fmt(totalInv)}</strong> (${invPct}% da renda anual estimada).`});
+  }
+  if(!items.length) items.push({icon:'📊', text:'Adicione lançamentos para gerar análise automática.'});
   return items;
 }
 
@@ -2722,6 +2749,7 @@ function renderDRE() {
   const resColor = resultado>=0?'var(--green)':'var(--red)';
   const analiseItems = gerarAnalise(totalInc, totalExp, resultado, margem, expTxs, fixedExp, varExp);
 
+  // === Receitas por descrição ===
   const incByDesc = {};
   incTxs.forEach(t=>{ if(!incByDesc[t.desc]) incByDesc[t.desc]={val:0}; incByDesc[t.desc].val+=t.value; });
   const expByDesc = {};
@@ -2731,6 +2759,53 @@ function renderDRE() {
   const maxInc = Math.max(...incRows.map(r=>r[1].val),1);
   const maxExp = Math.max(...expRows.map(r=>r[1].val),1);
 
+  // === Despesas por Conta ===
+  const expByConta = {};
+  expTxs.forEach(t=>{
+    if(!expByConta[t.conta]) expByConta[t.conta]={val:0,items:{}};
+    expByConta[t.conta].val+=t.value;
+    if(!expByConta[t.conta].items[t.desc]) expByConta[t.conta].items[t.desc]=0;
+    expByConta[t.conta].items[t.desc]+=t.value;
+  });
+  const contaRows = Object.entries(expByConta).sort((a,b)=>b[1].val-a[1].val);
+
+  // === Fixo vs Variável ===
+  const fixByDesc = {};
+  const varByDesc = {};
+  expTxs.forEach(t=>{
+    if(t.natureza==='fixo') { if(!fixByDesc[t.desc]) fixByDesc[t.desc]=0; fixByDesc[t.desc]+=t.value; }
+    else { if(!varByDesc[t.desc]) varByDesc[t.desc]=0; varByDesc[t.desc]+=t.value; }
+  });
+  const fixRows = Object.entries(fixByDesc).sort((a,b)=>b[1]-a[1]);
+  const varRows = Object.entries(varByDesc).sort((a,b)=>b[1]-a[1]);
+
+  // === Acumulado do Ano ===
+  let acumInc=0, acumExp=0;
+  for(let m=0; m<=cM; m++) {
+    const mTxs = monthTx(cY,m);
+    acumInc += sumInc(mTxs);
+    acumExp += sumExp(mTxs);
+  }
+  const acumRes = acumInc - acumExp;
+  const acumMargem = acumInc>0 ? acumRes/acumInc*100 : 0;
+  // Monthly breakdown for acumulado
+  const acumMonths = [];
+  let runInc=0, runExp=0;
+  for(let m=0; m<=cM; m++) {
+    const mTxs = monthTx(cY,m);
+    const mi = sumInc(mTxs), me = sumExp(mTxs);
+    runInc+=mi; runExp+=me;
+    acumMonths.push({mes:MS[m], inc:mi, exp:me, res:mi-me, acInc:runInc, acExp:runExp, acRes:runInc-runExp});
+  }
+
+  // === Investimentos (cofrinhos) ===
+  initCofrinhos();
+  const cofs = getCofList();
+  const totalInv = cofs.reduce((s,c)=>s+saldoAtual(c.id),0);
+  const totalMeta = cofs.reduce((s,c)=>s+(c.meta||0),0);
+  const pctMeta = totalMeta>0 ? Math.min(100,Math.round(totalInv/totalMeta*100)) : 0;
+  const totalRendMes = cofs.reduce((s,c)=>s+calcRendMensal(saldoAtual(c.id)),0);
+
   function accArrow(id) {
     return `<svg id="dre-arrow-${id}" viewBox="0 0 10 6" width="14" height="14" fill="none" class="dre-acc-arrow">
       <path d="M1 1l4 4 4-4" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2738,6 +2813,7 @@ function renderDRE() {
   }
 
   document.getElementById('dre-content').innerHTML = `
+  <!-- RESUMO TOP -->
   <div class="dre-card">
     <div style="padding:14px 15px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
       <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Receita</div><div style="font-size:15px;font-weight:700;font-family:'DM Mono',monospace;color:var(--green)">${fmt(totalInc)}</div></div>
@@ -2745,11 +2821,13 @@ function renderDRE() {
       <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Resultado</div><div style="font-size:15px;font-weight:700;font-family:'DM Mono',monospace;color:${resColor}">${resultado>=0?'+':''}${fmt(resultado)}</div></div>
     </div>
   </div>
+
+  <!-- ANÁLISE -->
   <div class="dre-analise-card">
     <div class="dre-analise-header" onclick="toggleDreAnalise()">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:16px">🧠</span>
-        <div><div style="font-size:12px;font-weight:600">Análise</div></div>
+        <div><div style="font-size:12px;font-weight:600">Análise do Mês</div><div style="font-size:10px;color:var(--text3);margin-top:1px">${analiseItems.length} insight(s)</div></div>
       </div>
       <svg id="dre-analise-arrow" viewBox="0 0 10 6" width="14" height="14" fill="none" style="transition:transform .25s"><path d="M1 1l4 4 4-4" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
@@ -2757,29 +2835,229 @@ function renderDRE() {
       ${analiseItems.map(it=>`<div class="dre-analise-item"><div class="dre-analise-icon">${it.icon}</div><div class="dre-analise-text">${it.text}</div></div>`).join('')}
     </div>
   </div>
+
+  <!-- RECEITAS -->
   <div class="dre-accordion">
     <div class="dre-acc-header" onclick="toggleDreAcc('rec')">
       <div style="flex:1"><div class="dre-acc-lbl" style="color:var(--green)">↑ Receitas</div></div>
       <span class="dre-acc-val" style="color:var(--green)">${fmt(totalInc)}</span>${accArrow('rec')}
     </div>
     <div class="dre-acc-body" id="dre-acc-rec">
-      ${incRows.map(([desc,{val}])=>{const w=Math.round(val/maxInc*100);return `<div class="dre-row"><div class="dre-row-name">${desc}</div><div class="dre-row-bar-wrap"><div class="dre-row-bar" style="width:${w}%;background:var(--green)"></div></div><div class="dre-row-val" style="color:var(--green)">+${fmt(val)}</div></div>`;}).join('')}
+      ${incRows.map(([desc,{val}])=>{
+        const w=Math.round(val/maxInc*100);
+        const pct=totalInc>0?(val/totalInc*100).toFixed(1):'0.0';
+        return `<div class="dre-row"><div class="dre-row-name">${desc}</div><div class="dre-row-bar-wrap"><div class="dre-row-bar" style="width:${w}%;background:var(--green)"></div></div><div class="dre-row-val" style="color:var(--green)">+${fmt(val)}</div><div class="dre-row-pct" style="color:var(--green)">${pct}%</div></div>`;
+      }).join('')}
+      ${incRows.length?`<div class="dre-total"><div class="dre-total-lbl">Total Receitas</div><div class="dre-total-val" style="color:var(--green)">+${fmt(totalInc)}</div></div>`:''}
     </div>
   </div>
+
+  <!-- DESPESAS -->
   <div class="dre-accordion">
     <div class="dre-acc-header" onclick="toggleDreAcc('exp')">
       <div style="flex:1"><div class="dre-acc-lbl" style="color:var(--red)">↓ Despesas</div></div>
       <span class="dre-acc-val" style="color:var(--red)">${fmt(totalExp)}</span>${accArrow('exp')}
     </div>
     <div class="dre-acc-body" id="dre-acc-exp">
-      ${expRows.map(([desc,{val}])=>{const w=Math.round(val/maxExp*100);return `<div class="dre-row"><div class="dre-row-name">${desc}</div><div class="dre-row-bar-wrap"><div class="dre-row-bar" style="width:${w}%;background:var(--red)"></div></div><div class="dre-row-val" style="color:var(--red)">-${fmt(val)}</div></div>`;}).join('')}
+      ${expRows.map(([desc,{val}])=>{
+        const w=Math.round(val/maxExp*100);
+        const pct=totalExp>0?(val/totalExp*100).toFixed(1):'0.0';
+        return `<div class="dre-row"><div class="dre-row-name">${desc}</div><div class="dre-row-bar-wrap"><div class="dre-row-bar" style="width:${w}%;background:var(--red)"></div></div><div class="dre-row-val" style="color:var(--red)">-${fmt(val)}</div><div class="dre-row-pct">${pct}%</div></div>`;
+      }).join('')}
+      ${expRows.length?`<div class="dre-total"><div class="dre-total-lbl">Total Despesas</div><div class="dre-total-val" style="color:var(--red)">-${fmt(totalExp)}</div></div>`:''}
     </div>
   </div>
+
+  <!-- POR CONTA -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('conta')">
+      <div style="flex:1"><div class="dre-acc-lbl" style="color:var(--amber)">💳 Despesas por Conta</div></div>
+      <span class="dre-acc-val" style="color:var(--red)">${fmt(totalExp)}</span>${accArrow('conta')}
+    </div>
+    <div class="dre-acc-body" id="dre-acc-conta">
+      ${contaRows.map(([conta,{val,items}])=>{
+        const cDef = getContaDef(conta);
+        const pct = totalExp>0?(val/totalExp*100).toFixed(1):'0.0';
+        const subItems = Object.entries(items).sort((a,b)=>b[1]-a[1]);
+        return `<div style="padding:10px 15px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="width:22px;height:22px;border-radius:6px;background:${cDef.cor}22;display:flex;align-items:center;justify-content:center">
+              ${makeLogoSvg(cDef,18).replace(/width="40" height="40"/,'width="14" height="14"')}
+            </div>
+            <span style="font-size:12px;font-weight:600;color:${cDef.cor};flex:1">${conta}</span>
+            <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--red)">-${fmt(val)}</span>
+            <span style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3)">${pct}%</span>
+          </div>
+          ${subItems.slice(0,5).map(([d,v])=>{
+            const sp=val>0?(v/val*100).toFixed(0):'0';
+            return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 30px">
+              <span style="font-size:11px;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d}</span>
+              <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2)">-${fmt(v)}</span>
+              <span style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);width:26px;text-align:right">${sp}%</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+
+  <!-- FIXO VS VARIÁVEL -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('fv')">
+      <div style="flex:1"><div class="dre-acc-lbl" style="color:var(--purple)">📌🔀 Fixo vs Variável</div></div>
+      <span class="dre-acc-val" style="color:var(--red)">${fmt(totalExp)}</span>${accArrow('fv')}
+    </div>
+    <div class="dre-acc-body" id="dre-acc-fv">
+      <div style="padding:10px 15px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px">📌</span>
+            <span style="font-size:12px;font-weight:600;color:var(--amber)">Fixas</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-family:'DM Mono',monospace;font-weight:600;color:var(--amber)">${fmt(fixedExp)}</span>
+            <span style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3)">${totalExp>0?(fixedExp/totalExp*100).toFixed(1):'0.0'}%</span>
+          </div>
+        </div>
+        ${fixRows.map(([desc,val])=>{
+          const p=fixedExp>0?(val/fixedExp*100).toFixed(0):'0';
+          return `<div style="display:flex;align-items:center;padding:3px 0 3px 22px;gap:6px">
+            <span style="font-size:11px;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${desc}</span>
+            <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2)">-${fmt(val)}</span>
+            <span style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);width:26px;text-align:right">${p}%</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="padding:10px 15px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px">🔀</span>
+            <span style="font-size:12px;font-weight:600;color:var(--purple)">Variáveis</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-family:'DM Mono',monospace;font-weight:600;color:var(--purple)">${fmt(varExp)}</span>
+            <span style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3)">${totalExp>0?(varExp/totalExp*100).toFixed(1):'0.0'}%</span>
+          </div>
+        </div>
+        ${varRows.map(([desc,val])=>{
+          const p=varExp>0?(val/varExp*100).toFixed(0):'0';
+          return `<div style="display:flex;align-items:center;padding:3px 0 3px 22px;gap:6px">
+            <span style="font-size:11px;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${desc}</span>
+            <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2)">-${fmt(val)}</span>
+            <span style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);width:26px;text-align:right">${p}%</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="dre-total">
+        <div style="display:flex;gap:16px">
+          <div><span style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Fixo</span><br><span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--amber)">${fmt(fixedExp)}</span></div>
+          <div><span style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Variável</span><br><span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--purple)">${fmt(varExp)}</span></div>
+        </div>
+        <div class="dre-total-val" style="color:var(--red)">-${fmt(totalExp)}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACUMULADO DO ANO -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('acum')">
+      <div style="flex:1"><div class="dre-acc-lbl" style="color:var(--accent)">📅 Acumulado ${cY}</div></div>
+      <span class="dre-acc-val" style="color:${acumRes>=0?'var(--green)':'var(--red)'}">${acumRes>=0?'+':''}${fmt(acumRes)}</span>${accArrow('acum')}
+    </div>
+    <div class="dre-acc-body" id="dre-acc-acum">
+      <div style="padding:10px 15px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;border-bottom:1px solid var(--border)">
+        <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Rec. Acum.</div><div style="font-size:14px;font-weight:700;font-family:'DM Mono',monospace;color:var(--green)">${fmt(acumInc)}</div></div>
+        <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Desp. Acum.</div><div style="font-size:14px;font-weight:700;font-family:'DM Mono',monospace;color:var(--red)">${fmt(acumExp)}</div></div>
+        <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Resultado</div><div style="font-size:14px;font-weight:700;font-family:'DM Mono',monospace;color:${acumRes>=0?'var(--green)':'var(--red)'}">${acumRes>=0?'+':''}${fmt(acumRes)}</div></div>
+      </div>
+      <div style="padding:6px 15px">
+        <div style="display:grid;grid-template-columns:40px 1fr 1fr 1fr;gap:4px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:9px;font-weight:700;color:var(--text3)">Mês</span>
+          <span style="font-size:9px;font-weight:700;color:var(--green);text-align:right">Receita</span>
+          <span style="font-size:9px;font-weight:700;color:var(--red);text-align:right">Despesa</span>
+          <span style="font-size:9px;font-weight:700;color:var(--text2);text-align:right">Saldo</span>
+        </div>
+        ${acumMonths.map(am=>{
+          const rc = am.res>=0?'var(--green)':'var(--red)';
+          return `<div style="display:grid;grid-template-columns:40px 1fr 1fr 1fr;gap:4px;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:capitalize">${am.mes}</span>
+            <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--green);text-align:right">${am.inc>0?'+'+fmtS(am.inc):'—'}</span>
+            <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--red);text-align:right">${am.exp>0?'-'+fmtS(am.exp):'—'}</span>
+            <span style="font-size:11px;font-family:'DM Mono',monospace;color:${rc};text-align:right">${am.res>=0?'+':''}${fmtS(am.res)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="dre-total">
+        <div class="dre-total-lbl">Acum. jan–${MS[cM]}</div>
+        <div class="dre-total-val" style="color:${acumRes>=0?'var(--green)':'var(--red)'}">${acumRes>=0?'+':''}${fmt(acumRes)}</div>
+      </div>
+      <div style="padding:8px 15px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Margem acumulada: <strong style="color:var(--text2)">${acumMargem.toFixed(1)}%</strong></div>
+        <div class="btrack"><div class="bfill ${acumMargem<=0?'over':acumMargem<15?'warn':'ok'}" style="width:${Math.min(100,Math.max(0,acumMargem))}%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INVESTIMENTOS / COFRINHOS -->
+  <div class="dre-accordion">
+    <div class="dre-acc-header" onclick="toggleDreAcc('inv')">
+      <div style="flex:1"><div class="dre-acc-lbl" style="color:var(--blue)">💰 Investimentos</div></div>
+      <span class="dre-acc-val" style="color:var(--green)">${fmt(totalInv)}</span>${accArrow('inv')}
+    </div>
+    <div class="dre-acc-body" id="dre-acc-inv">
+      <div style="padding:12px 15px;border-bottom:1px solid var(--border)">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+          <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Total Investido</div><div style="font-size:14px;font-weight:700;font-family:'DM Mono',monospace;color:var(--green)">${fmt(totalInv)}</div></div>
+          <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Rend./mês est.</div><div style="font-size:14px;font-weight:700;font-family:'DM Mono',monospace;color:var(--blue)">${fmt(totalRendMes)}</div></div>
+          <div><div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Meta Total</div><div style="font-size:14px;font-weight:700;font-family:'DM Mono',monospace;color:var(--amber)">${totalMeta>0?fmt(totalMeta):'—'}</div></div>
+        </div>
+        ${totalMeta>0?`
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <span style="font-size:10px;font-weight:600;color:var(--text3)">Progresso vs Meta</span>
+          <span style="font-size:12px;font-family:'DM Mono',monospace;font-weight:600;color:var(--amber)">${pctMeta}%</span>
+        </div>
+        <div class="dre-inv-bar-track"><div class="dre-inv-bar-fill" style="width:${pctMeta}%;background:var(--amber)"></div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:3px"><span style="font-size:10px;color:var(--text3)">Atual: ${fmt(totalInv)}</span><span style="font-size:10px;color:var(--text3)">Meta: ${fmt(totalMeta)}</span></div>
+        `:''}
+      </div>
+      ${cofs.map(c=>{
+        const s=saldoAtual(c.id);
+        const r=calcRendMensal(s);
+        const meta=c.meta||0;
+        const p=meta>0?Math.min(100,Math.round(s/meta*100)):0;
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 15px;border-bottom:1px solid var(--border)">
+          <span style="font-size:16px">${c.icon}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600">${c.nome}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:1px">Rend: ~${fmt(r)}/mês${meta>0?' · Meta: '+fmt(meta)+' ('+p+'%)':''}</div>
+            ${meta>0?`<div style="height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:4px;width:100%"><div style="width:${p}%;height:100%;background:${c.cor};border-radius:2px"></div></div>`:''}
+          </div>
+          <span style="font-size:13px;font-family:'DM Mono',monospace;font-weight:600;color:${c.cor}">${fmt(s)}</span>
+        </div>`;
+      }).join('')}
+      <div class="dre-total">
+        <div class="dre-total-lbl">Total Investido</div>
+        <div class="dre-total-val" style="color:var(--green)">${fmt(totalInv)}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTADO FINAL -->
   <div class="dre-card">
     <div class="dre-result" style="background:${resultado>=0?'rgba(74,222,128,.06)':'rgba(248,113,113,.06)'}">
       <div><div class="dre-result-lbl" style="color:${resColor}">= Resultado Líquido</div><div style="font-size:10px;color:var(--text3);margin-top:2px">Margem ${margem.toFixed(1)}%</div></div>
       <div class="dre-result-val" style="color:${resColor}">${resultado>=0?'+':''}${fmt(resultado)}</div>
     </div>
+  </div>
+
+  <!-- BOTÃO FECHAR BALANÇO -->
+  <div style="margin-top:18px;text-align:center">
+    <button onclick="abrirModalBalanco()" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);
+      padding:14px 28px;color:var(--amber);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;
+      cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:all .15s">
+      📦 Fechar Balanço do Ano
+    </button>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">Exporta histórico em HTML e reseta os dados</div>
   </div>`;
 }
 
@@ -2801,10 +3079,65 @@ function gerarArquivoBalanco() {
   const fmtVal = n => 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const totalInc = D.transactions.filter(t=>t.type==='income').reduce((s,t)=>s+t.value,0);
   const totalExp = D.transactions.filter(t=>t.type==='expense').reduce((s,t)=>s+t.value,0);
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Balanço</title><style>body{font-family:sans-serif;background:#0d0d0d;color:#f0ede8;max-width:800px;margin:0 auto;padding:24px}</style></head><body><h1>Balanço</h1><p>Receitas: ${fmtVal(totalInc)} · Despesas: ${fmtVal(totalExp)} · Resultado: ${fmtVal(totalInc-totalExp)}</p><p>${D.transactions.length} lançamentos</p></body></html>`;
+  const resultado = totalInc - totalExp;
+  const anos = [...new Set(D.transactions.map(t=>t.date.slice(0,4)))].sort();
+  const anoLabel = anos.length ? anos.join('/') : new Date().getFullYear();
+  // Monthly breakdown
+  let monthRows = '';
+  for(let m=0;m<12;m++){
+    const mTxs = D.transactions.filter(t=>{const d=new Date(t.date+'T12:00:00');return d.getMonth()===m;});
+    const mi=mTxs.filter(t=>t.type==='income').reduce((s,t)=>s+t.value,0);
+    const me=mTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.value,0);
+    if(mi>0||me>0) monthRows+=`<tr><td>${MONTHS[m]}</td><td style="color:#4ade80">${fmtVal(mi)}</td><td style="color:#f87171">${fmtVal(me)}</td><td style="color:${mi-me>=0?'#4ade80':'#f87171'}">${fmtVal(mi-me)}</td></tr>`;
+  }
+  // By account
+  const byConta = {};
+  D.transactions.forEach(t=>{
+    if(!byConta[t.conta]) byConta[t.conta]={inc:0,exp:0};
+    if(t.type==='income') byConta[t.conta].inc+=t.value; else byConta[t.conta].exp+=t.value;
+  });
+  let contaRows = '';
+  Object.entries(byConta).sort((a,b)=>b[1].exp-a[1].exp).forEach(([c,v])=>{
+    contaRows+=`<tr><td>${c}</td><td style="color:#4ade80">${fmtVal(v.inc)}</td><td style="color:#f87171">${fmtVal(v.exp)}</td><td style="color:${v.inc-v.exp>=0?'#4ade80':'#f87171'}">${fmtVal(v.inc-v.exp)}</td></tr>`;
+  });
+  // Cofrinhos
+  initCofrinhos();
+  const cofs = getCofList();
+  let cofRows = '';
+  let totalInvBal = 0;
+  cofs.forEach(c=>{
+    const s = saldoAtual(c.id);
+    totalInvBal += s;
+    cofRows+=`<tr><td>${c.icon} ${c.nome}</td><td style="color:#4ade80">${fmtVal(s)}</td><td>${c.meta?fmtVal(c.meta):'—'}</td></tr>`;
+  });
+  // All transactions
+  let txRows = '';
+  [...D.transactions].sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{
+    const sign = t.type==='income'?'+':'-';
+    const color = t.type==='income'?'#4ade80':'#f87171';
+    txRows+=`<tr><td>${t.date}</td><td>${t.conta}</td><td>${t.desc}${t.parcela?' ('+t.parcAtual+'/'+t.parcTotal+')':''}</td><td style="color:${color}">${sign}${fmtVal(t.value)}</td></tr>`;
+  });
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Balanço ${anoLabel}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',sans-serif;background:#0d0d0d;color:#f0ede8;max-width:900px;margin:0 auto;padding:32px 20px}
+h1{font-size:28px;margin-bottom:6px}h2{font-size:18px;margin:28px 0 12px;color:#e8d5b0;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:8px}
+.sub{color:#9e9a94;font-size:13px;margin-bottom:24px}.cards{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:24px}
+.card{background:#161616;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:16px}.card-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#5c5855;margin-bottom:6px}
+.card-val{font-size:22px;font-weight:700;font-family:monospace}table{width:100%;border-collapse:collapse;margin-bottom:8px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}th{color:#5c5855;font-size:10px;text-transform:uppercase;letter-spacing:.6px}
+.footer{margin-top:32px;text-align:center;color:#5c5855;font-size:11px}</style></head>
+<body><h1>📦 Balanço Financeiro ${anoLabel}</h1><p class="sub">Gerado em ${new Date().toLocaleDateString('pt-BR')} · ${D.transactions.length} lançamentos</p>
+<div class="cards"><div class="card"><div class="card-lbl">Receita Total</div><div class="card-val" style="color:#4ade80">${fmtVal(totalInc)}</div></div>
+<div class="card"><div class="card-lbl">Despesa Total</div><div class="card-val" style="color:#f87171">${fmtVal(totalExp)}</div></div>
+<div class="card"><div class="card-lbl">Resultado</div><div class="card-val" style="color:${resultado>=0?'#4ade80':'#f87171'}">${resultado>=0?'+':''}${fmtVal(resultado)}</div></div>
+<div class="card"><div class="card-lbl">Investido</div><div class="card-val" style="color:#60a5fa">${fmtVal(totalInvBal)}</div></div></div>
+<h2>📅 Resumo Mensal</h2><table><thead><tr><th>Mês</th><th>Receita</th><th>Despesa</th><th>Resultado</th></tr></thead><tbody>${monthRows}</tbody></table>
+<h2>💳 Por Conta</h2><table><thead><tr><th>Conta</th><th>Receita</th><th>Despesa</th><th>Resultado</th></tr></thead><tbody>${contaRows}</tbody></table>
+<h2>💰 Cofrinhos</h2><table><thead><tr><th>Cofrinho</th><th>Saldo</th><th>Meta</th></tr></thead><tbody>${cofRows}</tbody></table>
+<h2>📋 Todos os Lançamentos</h2><table><thead><tr><th>Data</th><th>Conta</th><th>Descrição</th><th>Valor</th></tr></thead><tbody>${txRows}</tbody></table>
+<div class="footer"><p>Teste de Ideia · Balanço gerado automaticamente</p></div></body></html>`;
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'balanco.html';
+  const a = document.createElement('a'); a.href = url; a.download = `balanco-${anoLabel}.html`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 function resetarDados() {
