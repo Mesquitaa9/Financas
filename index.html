@@ -2414,6 +2414,7 @@ function init() {
   if(startPage!=='dash')    renderDash();
 }
 init();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
 </html>
