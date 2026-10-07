@@ -7,7 +7,7 @@
   "background_color": "#0a0a0b",
   "theme_color": "#0a0a0b",
   "icons": [
-    { "src": "nexo-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "nexo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "NEXO_icone_192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "NEXO_icone_512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
