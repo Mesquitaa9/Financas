@@ -1890,8 +1890,15 @@ function renderAnAno() {
   const corDe = (k,i) => anAnoGrp==='conta' ? getContaDef(k).cor : CAT_COLORS[i%CAT_COLORS.length];
   const emojiDe = k => anAnoGrp==='conta' ? '' : (catDef(tipoTx,k).emoji+' ');
 
-  // Top 5 maiores lançamentos do ano
-  const top5 = txs.filter(t=>t.type===tipoTx).sort((a,b)=>b.value-a.value).slice(0,5);
+    // Top 5 — agrupa itens repetidos (parcelas/recorrências) e soma o total do ano
+  const grp = {};
+  txs.filter(t=>t.type===tipoTx).forEach(t=>{
+    const k = t.desc.toUpperCase()+'|'+t.conta;
+    if(!grp[k]) grp[k] = { desc:t.desc, conta:t.conta, cat:catOf(t), total:0, qtd:0, max:0, id:t.id };
+    grp[k].total += t.value; grp[k].qtd++;
+    if(t.value > grp[k].max){ grp[k].max = t.value; grp[k].id = t.id; }
+  });
+  const top5 = Object.values(grp).sort((a,b)=>b.total-a.total).slice(0,5);
 
   // Parcelas que vieram de anos anteriores
   const parcAnteriores = txs.filter(t => {
@@ -1961,18 +1968,22 @@ function renderAnAno() {
       </div>`:
       `<div class="empty" style="padding:20px"><p>Nenhum lançamento em ${cY}.</p></div>`}
     </div>
-    ${top5.length?`
+        ${top5.length?`
     <div class="chartbox">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🏆 Top 5 maiores ${anTipo==='e'?'gastos':'receitas'} de ${cY}</div>
-      ${top5.map((t,i)=>`<div class="an-row" style="cursor:pointer" onclick="abrirEditTx(${t.id})">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🏆 Onde o dinheiro ${anTipo==='e'?'mais foi':'mais entrou'} em ${cY} <span style="font-weight:400;color:var(--text3)">· total anual por item</span></div>
+      ${top5.map((g,i)=>{
+        const pct = totTipo>0?(g.total/totTipo*100).toFixed(1):'0.0';
+        const w = top5[0].total>0?Math.round(g.total/top5[0].total*100):0;
+        return `<div class="an-row" style="cursor:pointer" onclick="abrirEditTx(${g.id})">
         <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);width:18px;flex-shrink:0">${i+1}º</span>
-        <span style="font-size:14px;flex-shrink:0">${txEmoji(t)}</span>
+        <span style="font-size:14px;flex-shrink:0">${catDef(tipoTx,g.cat).emoji}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.desc}${t.parcela?' <span class="badge parc">'+t.parcAtual+'/'+t.parcTotal+'</span>':''}</div>
-          <div style="font-size:10px;color:var(--text3)">${t.conta} · ${t.date.slice(8,10)}/${t.date.slice(5,7)}</div>
+          <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.desc}</div>
+          <div style="font-size:10px;color:var(--text3)">${g.conta}${g.qtd>1?' · '+g.qtd+'× de '+fmt(g.max):''} · ${pct}% do ano</div>
+          <div class="an-bar-wrap" style="margin-top:4px"><div class="an-bar" style="width:${w}%;background:${anTipo==='e'?'var(--red)':'var(--green)'}"></div></div>
         </div>
-        <span style="font-size:12px;font-family:'DM Mono',monospace;font-weight:700;flex-shrink:0;color:${anTipo==='e'?'var(--red)':'var(--green)'}">${anTipo==='e'?'-':'+'}${fmt(t.value)}</span>
-      </div>`).join('')}
+        <span style="font-size:12px;font-family:'DM Mono',monospace;font-weight:700;flex-shrink:0;color:${anTipo==='e'?'var(--red)':'var(--green)'}">${anTipo==='e'?'-':'+'}${fmt(g.total)}</span>
+      </div>`;}).join('')}
     </div>`:''}
     ${parcAnteriores.length?`
     <div class="sug-card">
