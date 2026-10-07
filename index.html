@@ -1710,8 +1710,8 @@ function delTx(id) {
 // ═══════════════════════════════════════════
 //  ABA ANÁLISE
 // ═══════════════════════════════════════════
-let anView = 'mes', anConta = 'all', anTipo = 'e';
-let anDonutChart = null;
+let anView = 'mes', anConta = 'all', anTipo = 'e', anAnoGrp = 'cat';
+let anDonutChart = null, anAnoDonutChart = null;
 
 function setAnView(v, el) {
   anView = v;
@@ -1721,9 +1721,12 @@ function setAnView(v, el) {
 }
 function setAnConta(c) { anConta = c; renderAnalise(); }
 function setAnTipo(t) { anTipo = t; renderAnalise(); }
+function setAnAnoGrp(g) { anAnoGrp = g; renderAnalise(); }
 
 function renderAnalise() {
   migratePagos(); initCats();
+  if(anDonutChart) { anDonutChart.destroy(); anDonutChart = null; }
+  if(anAnoDonutChart) { anAnoDonutChart.destroy(); anAnoDonutChart = null; }
   if(anView==='mes') renderAnMes(); else renderAnAno();
 }
 
@@ -1871,6 +1874,24 @@ function renderAnAno() {
   const inc = sumInc(txs), exp = sumExp(txs), res = inc-exp;
   const resColor = res>=0?'var(--green)':'var(--red)';
   const hoje = todayISO();
+  const CAT_COLORS = ['#f87171','#fb923c','#fbbf24','#4ade80','#22d3ee','#60a5fa','#c084fc','#f472b6','#94A3B8','#e8d5b0','#a3e635','#2dd4bf'];
+
+  const tipoTx = anTipo==='e'?'expense':'income';
+  const totTipo = tipoTx==='expense'?exp:inc;
+  const tipoLbl = anTipo==='e'?'Despesas':'Receitas';
+
+  // Donut do ano — agrupado por categoria OU por conta
+  const byKey = {};
+  txs.filter(t=>t.type===tipoTx).forEach(t=>{
+    const k = anAnoGrp==='cat' ? catOf(t) : t.conta;
+    byKey[k]=(byKey[k]||0)+t.value;
+  });
+  const entries = Object.entries(byKey).sort((a,b)=>b[1]-a[1]);
+  const corDe = (k,i) => anAnoGrp==='conta' ? getContaDef(k).cor : CAT_COLORS[i%CAT_COLORS.length];
+  const emojiDe = k => anAnoGrp==='conta' ? '' : (catDef(tipoTx,k).emoji+' ');
+
+  // Top 5 maiores lançamentos do ano
+  const top5 = txs.filter(t=>t.type===tipoTx).sort((a,b)=>b.value-a.value).slice(0,5);
 
   // Parcelas que vieram de anos anteriores
   const parcAnteriores = txs.filter(t => {
@@ -1881,9 +1902,7 @@ function renderAnAno() {
   });
   const somaParcAnt = parcAnteriores.reduce((s,t)=>s+t.value,0);
 
-  // Fixos do ano anterior que ainda não existem neste ano
   const candidatos = getFixosCandidatos(cY);
-
   const realizado = txs.filter(t=>t.date<=hoje);
   const futuro = txs.filter(t=>t.date>hoje);
   const resReal = sumInc(realizado)-sumExp(realizado);
@@ -1911,6 +1930,50 @@ function renderAnAno() {
         <div style="font-size:16px;font-weight:700;font-family:'DM Mono',monospace;color:${resFut>=0?'var(--green)':'var(--red)'}">${resFut>=0?'+':''}${fmt(resFut)}</div>
       </div>
     </div>
+    <div class="chartbox">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:600;color:var(--text2)">Maiores ${anTipo==='e'?'gastos':'entradas'} de ${cY}</span>
+        <div class="seg" style="margin:0;padding:2px;width:auto">
+          <button class="sg${anTipo==='e'?' on':''}" style="padding:5px 12px" onclick="setAnTipo('e')">Despesas</button>
+          <button class="sg${anTipo==='i'?' on':''}" style="padding:5px 12px" onclick="setAnTipo('i')">Receitas</button>
+        </div>
+      </div>
+      <div class="chips" style="margin-bottom:6px">
+        <span class="chip${anAnoGrp==='cat'?' on':''}" onclick="setAnAnoGrp('cat')">🏷 Por categoria</span>
+        <span class="chip${anAnoGrp==='conta'?' on':''}" onclick="setAnAnoGrp('conta')">💳 Por conta</span>
+      </div>
+      ${entries.length?`
+      <div class="donut-wrap" style="height:210px">
+        <canvas id="an-ano-donut"></canvas>
+        <div class="donut-center"><div class="dc-lbl">${tipoLbl} ${cY}</div>
+        <div class="dc-val" style="color:${anTipo==='e'?'var(--red)':'var(--green)'}">${fmtS(totTipo)}</div></div>
+      </div>
+      <div class="leg-list">
+        ${entries.map(([k,v],i)=>{
+          const pct = totTipo>0?(v/totTipo*100).toFixed(1):'0.0';
+          return `<div class="leg-row">
+            <div class="leg-dot" style="background:${corDe(k,i)}"></div>
+            <span class="leg-name">${emojiDe(k)}${k}</span>
+            <span class="leg-val">${fmt(v)}</span>
+            <span class="leg-pct">${pct}%</span>
+          </div>`;
+        }).join('')}
+      </div>`:
+      `<div class="empty" style="padding:20px"><p>Nenhum lançamento em ${cY}.</p></div>`}
+    </div>
+    ${top5.length?`
+    <div class="chartbox">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🏆 Top 5 maiores ${anTipo==='e'?'gastos':'receitas'} de ${cY}</div>
+      ${top5.map((t,i)=>`<div class="an-row" style="cursor:pointer" onclick="abrirEditTx(${t.id})">
+        <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);width:18px;flex-shrink:0">${i+1}º</span>
+        <span style="font-size:14px;flex-shrink:0">${txEmoji(t)}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.desc}${t.parcela?' <span class="badge parc">'+t.parcAtual+'/'+t.parcTotal+'</span>':''}</div>
+          <div style="font-size:10px;color:var(--text3)">${t.conta} · ${t.date.slice(8,10)}/${t.date.slice(5,7)}</div>
+        </div>
+        <span style="font-size:12px;font-family:'DM Mono',monospace;font-weight:700;flex-shrink:0;color:${anTipo==='e'?'var(--red)':'var(--green)'}">${anTipo==='e'?'-':'+'}${fmt(t.value)}</span>
+      </div>`).join('')}
+    </div>`:''}
     ${parcAnteriores.length?`
     <div class="sug-card">
       <div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:4px">📋 Compromissos vindos de anos anteriores</div>
@@ -1932,6 +1995,23 @@ function renderAnAno() {
     <button onclick="abrirModalBalanco()" class="cfg-btn" style="margin-top:4px">
       <span class="cfg-ico">📦</span><div style="flex:1"><div>Fechar balanço de ${cY}</div><div class="cfg-sub">Exporta relatório HTML — nada é apagado</div></div>
     </button>`;
+
+  if(entries.length) {
+    if(anAnoDonutChart) { anAnoDonutChart.destroy(); anAnoDonutChart=null; }
+    const ctx = document.getElementById('an-ano-donut');
+    anAnoDonutChart = new Chart(ctx, {
+      type:'doughnut',
+      data:{ labels:entries.map(([k])=>k),
+        datasets:[{ data:entries.map(([,v])=>v),
+          backgroundColor:entries.map(([k],i)=>corDe(k,i)+'CC'),
+          borderColor:'#161616', borderWidth:3, hoverOffset:6 }] },
+      options:{ responsive:true, maintainAspectRatio:false, cutout:'68%',
+        plugins:{ legend:{display:false},
+          tooltip:{ backgroundColor:'#1e1e1e', borderColor:'rgba(255,255,255,.1)', borderWidth:1,
+            titleColor:'#f0ede8', bodyColor:'#9e9a94', padding:10,
+            callbacks:{ label:c=>' '+fmt(c.raw)+' ('+(totTipo>0?(c.raw/totTipo*100).toFixed(1):'0')+'%)' } } } }
+    });
+  }
 }
 
 function getFixosCandidatos(ano) {
