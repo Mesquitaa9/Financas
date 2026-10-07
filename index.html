@@ -349,6 +349,9 @@ button{touch-action:manipulation}
   width:100%;max-width:430px;padding:20px 20px 44px;animation:su .26s cubic-bezier(.2,.8,.3,1);max-height:92vh;overflow-y:auto;box-shadow:0 -10px 40px rgba(0,0,0,.5)}
 @keyframes su{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}
 .mhandle{width:36px;height:4px;background:var(--bg5);border-radius:2px;margin:0 auto 18px}
+.modal{position:relative}
+.mclose{position:absolute;top:14px;right:16px;width:34px;height:34px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);color:var(--text2);font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:5;font-family:'DM Sans',sans-serif;transition:transform .12s,color .2s}
+.mclose:active{transform:scale(.88);color:var(--accent2)}
 .mtitle{font-size:18px;font-weight:700;margin-bottom:18px;letter-spacing:-.4px}
 .ttoggle{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:16px}
 .tbtn{padding:10px;border-radius:var(--rs);border:1px solid var(--border);background:var(--bg3);
@@ -408,7 +411,7 @@ button{touch-action:manipulation}
 <!-- ══ PAGE: DASHBOARD ══ -->
 <div id="p-dash" class="page on">
   <div class="ph">
-    <span class="ptitle">Dashboard</span>
+    <span class="ptitle">NEXO ◈<span style="color:var(--accent)">.</span></span>
     <div style="display:flex;align-items:center;gap:8px">
       <div class="mespill">
         <button onclick="cm(-1)">‹</button>
@@ -2377,6 +2380,15 @@ var first=document.querySelector('.tab');if(first)showSec(first.dataset.s,first)
 //  INIT
 // ═══════════════════════════════════════════
 function init() {
+  // Botão ✕ de fechar em todos os modais
+  document.querySelectorAll('.overlay').forEach(ov => {
+    const m = ov.querySelector('.modal');
+    if(!m) return;
+    const b = document.createElement('button');
+    b.className = 'mclose'; b.innerHTML = '✕'; b.setAttribute('aria-label','Fechar');
+    b.onclick = () => ov.classList.remove('on');
+    m.appendChild(b);
+  });
   initContas(); initCats(); migratePagos();
   populateContaSelect('f-conta');
 
